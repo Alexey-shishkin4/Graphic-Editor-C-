@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <iostream>
+#include <algorithm>
 
 #include <vector>
 
@@ -16,6 +17,17 @@ struct Layer {
     bool visible = true;
     std::string name;
 };
+
+enum class Tool {
+    None,
+    Select,
+    Move,
+    Erase
+};
+
+Tool current_tool = Tool::None;
+const char* tool_names[] = { "Erase", "Select", "Move" };
+const int tool_count = 3;
 
 enum class ActionType {
     AddRect,
@@ -38,6 +50,9 @@ std::vector<Action> undo_stack;
 std::vector<Action> redo_stack;
 
 
+Rect* selected_rect = nullptr;
+
+
 //std::vector<Rect> user_rects;
 std::vector<Layer> layers;
 int active_layer = 0;  // индекс активного слоя
@@ -45,10 +60,15 @@ int active_layer = 0;  // индекс активного слоя
 bool button1_pressed = false;
 bool ctrl_pressed = false;
 bool hovering_button1 = false;
+bool tool_selected = false;
 
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
+
+bool point_in_rect(float x, float y, const Rect& r) {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
 
 void undo() {
     if (undo_stack.empty()) return;
@@ -185,6 +205,36 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         if (ctrl_pressed && event->key.scancode == SDL_SCANCODE_Y) {
             redo();
         }
+        if (event->key.scancode == SDL_SCANCODE_S) {
+            if (tool_selected) {
+                tool_selected = false;
+                current_tool = Tool::None;
+            } else {
+                current_tool = Tool::Select;
+                tool_selected = true;
+                printf("Select tool.\n");
+            }
+        }
+        if (event->key.scancode ==  SDL_SCANCODE_M) {
+            if (tool_selected) {
+                tool_selected = false;
+                current_tool = Tool::None;
+            } else {
+                current_tool = Tool::Move;
+                tool_selected = true;
+                printf("Move tool.\n");
+            }
+        }
+        if (event->key.scancode == SDL_SCANCODE_E) {
+            if (tool_selected) {
+                tool_selected = false;
+                current_tool = Tool::None;
+            } else {
+                current_tool = Tool::Erase;
+                tool_selected = true;
+                printf("Erase tool.\n");
+            }
+        }
     }
     if (event->type == SDL_EVENT_KEY_UP) {
         if (event->key.mod & SDL_KMOD_CTRL) {
@@ -213,23 +263,66 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
                 redo_stack.clear();  // сбрасываем redo при новом действии
             }
         }
-        if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && event->button.button == SDL_BUTTON_LEFT) {
-            float mx = static_cast<float>(event->button.x);
-            float my = static_cast<float>(event->button.y);
-        
-            for (int i = 0; i < (int)layers.size(); ++i) {
-                SDL_FRect layer_button = { 10.0f, 80.0f + i * 40.0f, 80.0f, 30.0f };
-                SDL_FRect eye_icon = { layer_button.x + 60.0f, layer_button.y + 5.0f, 15.0f, 15.0f };
-        
-                if (mx >= eye_icon.x && mx <= eye_icon.x + eye_icon.w &&
-                    my >= eye_icon.y && my <= eye_icon.y + eye_icon.h) {
-                    layers[i].visible = !layers[i].visible; // Переключаем видимость
-                } else if (mx >= layer_button.x && mx <= layer_button.x + layer_button.w &&
-                           my >= layer_button.y && my <= layer_button.y + layer_button.h) {
-                    active_layer = i; // Выбор слоя
+        for (int i = 0; i < (int)layers.size(); ++i) {
+            SDL_FRect layer_button = { 10.0f, 80.0f + i * 40.0f, 80.0f, 30.0f };
+            SDL_FRect eye_icon = { layer_button.x + 60.0f, layer_button.y + 5.0f, 15.0f, 15.0f };
+    
+            if (mx >= eye_icon.x && mx <= eye_icon.x + eye_icon.w &&
+                my >= eye_icon.y && my <= eye_icon.y + eye_icon.h) {
+                layers[i].visible = !layers[i].visible; // Переключаем видимость
+            } else if (mx >= layer_button.x && mx <= layer_button.x + layer_button.w &&
+                       my >= layer_button.y && my <= layer_button.y + layer_button.h) {
+                active_layer = i; // Выбор слоя
+            }
+        }
+        if (current_tool == Tool::Select) {
+            selected_rect = nullptr;
+            for (auto& rect : layers[active_layer].rects) {
+                if (point_in_rect(mx, my, rect)) {
+                    selected_rect = &rect;
                 }
             }
         }
+        SDL_FRect select_tool_button = { 10.0f, 400.0f, 80.0f, 30.0f };
+        SDL_FRect move_tool_button   = { 10.0f, 440.0f, 80.0f, 30.0f };
+        SDL_FRect erase_tool_button  = { 10.0f, 480.0f, 80.0f, 30.0f };
+
+        if (mx >= select_tool_button.x && mx <= select_tool_button.x + select_tool_button.w &&
+            my >= select_tool_button.y && my <= select_tool_button.y + select_tool_button.h) {
+            if (tool_selected) {
+                tool_selected = false;
+                current_tool = Tool::None;
+            } else {
+                current_tool = Tool::Select;
+                tool_selected = true;
+                printf("Select tool.\n");
+            }
+        }
+
+        else if (mx >= move_tool_button.x && mx <= move_tool_button.x + move_tool_button.w &&
+                my >= move_tool_button.y && my <= move_tool_button.y + move_tool_button.h) {
+            if (tool_selected) {
+                tool_selected = false;
+                current_tool = Tool::None;
+            } else {
+                current_tool = Tool::Move;
+                tool_selected = true;
+                printf("Move tool.\n");
+            }
+        }
+
+        else if (mx >= erase_tool_button.x && mx <= erase_tool_button.x + erase_tool_button.w &&
+                my >= erase_tool_button.y && my <= erase_tool_button.y + erase_tool_button.h) {
+            if (tool_selected) {
+                tool_selected = false;
+                current_tool = Tool::None;
+            } else {
+                current_tool = Tool::Erase;
+                tool_selected = true;
+                printf("Erase tool.\n");
+            }
+        }
+        
     }
 
     if (event->type == SDL_EVENT_MOUSE_MOTION) {
@@ -240,6 +333,40 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         hovering_button1 = (mx >= button1.x && mx <= button1.x + button1.w &&
                             my >= button1.y && my <= button1.y + button1.h);
     }
+
+    static bool dragging = false;
+    static float drag_offset_x = 0, drag_offset_y = 0;
+    float mx = static_cast<float>(event->button.x);
+    float my = static_cast<float>(event->button.y);
+
+    if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && current_tool == Tool::Move) {
+        for (auto& rect : layers[active_layer].rects) {
+            if (point_in_rect(mx, my, rect)) {
+                selected_rect = &rect;
+                drag_offset_x = mx - rect.x;
+                drag_offset_y = my - rect.y;
+                dragging = true;
+                break;
+            }
+        }
+    }
+
+    if (event->type == SDL_EVENT_MOUSE_MOTION && dragging && selected_rect) {
+        selected_rect->x = mx - drag_offset_x;
+        selected_rect->y = my - drag_offset_y;
+    }
+
+    if (event->type == SDL_EVENT_MOUSE_BUTTON_UP && dragging) {
+        dragging = false;
+    }
+
+    if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && current_tool == Tool::Erase) {
+        auto& rects = layers[active_layer].rects;
+        rects.erase(std::remove_if(rects.begin(), rects.end(), [mx, my](const Rect& r) {
+            return point_in_rect(mx, my, r);
+        }), rects.end());
+    }
+
 
     return SDL_APP_CONTINUE;
 }
@@ -296,11 +423,41 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
             }
             SDL_RenderFillRect(renderer, &button1);
 
-            //if (button1_pressed) {
-            //    SDL_FRect center_rect = { 540.0f, 310.0f, 200.0f, 100.0f };
-            //    SDL_SetRenderDrawColor(renderer, 255, 100, 100, 255);  // красный
-            //    SDL_RenderFillRect(renderer, &center_rect);
-            //}
+            // Рисуем список слоёв
+            int y = 80;
+            for (int i = 0; i < (int)layers.size(); ++i) {
+                SDL_FRect layer_button = { 10.0f, (float)y, 80.0f, 30.0f };
+                if (i == active_layer) {
+                    SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
+                } else {
+                    SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
+                }
+                SDL_RenderFillRect(renderer, &layer_button);
+
+                // Нарисовать индикатор видимости
+                if (layers[i].visible) {
+                    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // зелёный
+                } else {
+                    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // красный
+                }
+                SDL_FRect eye = { layer_button.x + 60.0f, layer_button.y + 5.0f, 15.0f, 15.0f };
+                SDL_RenderFillRect(renderer, &eye);
+
+                y += 40;
+            }
+            for (int i = 1; i < tool_count + 1; ++i) {
+                SDL_FRect button = { 10.0f, 360.0f + i * 40.0f, 80.0f, 30.0f };
+        
+                SDL_SetRenderDrawColor(renderer,
+                    (int)current_tool == i ? 180 : 100,
+                    (int)current_tool == i ? 180 : 100,
+                    (int)current_tool == i ? 180 : 100,
+                    255);
+                SDL_RenderFillRect(renderer, &button);
+        
+                // Optionally draw text labels
+                //DrawText(renderer, font, tool_names[i], button.x + 5, button.y + 5);
+            }
         }
     }
 
@@ -310,30 +467,11 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         for (const Rect& r : layer.rects) {
             SDL_FRect rect = { r.x, r.y, r.w, r.h };
             SDL_RenderFillRect(renderer, &rect);
-        }
-    }
 
-    // Рисуем список слоёв
-    int y = 80;
-    for (int i = 0; i < (int)layers.size(); ++i) {
-        SDL_FRect layer_button = { 10.0f, (float)y, 80.0f, 30.0f };
-        if (i == active_layer) {
-            SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
-        } else {
-            SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
+            if (selected_rect ==  &r) {
+                SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255);  // Жёлтая рамка
+            }
         }
-        SDL_RenderFillRect(renderer, &layer_button);
-
-        // Нарисовать индикатор видимости
-        if (layers[i].visible) {
-            SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // зелёный
-        } else {
-            SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // красный
-        }
-        SDL_FRect eye = { layer_button.x + 60.0f, layer_button.y + 5.0f, 15.0f, 15.0f };
-        SDL_RenderFillRect(renderer, &eye);
-
-        y += 40;
     }
 
     SDL_RenderPresent(renderer);
