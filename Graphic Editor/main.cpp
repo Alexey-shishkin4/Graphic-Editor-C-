@@ -17,6 +17,26 @@ struct Layer {
     std::string name;
 };
 
+enum class ActionType {
+    AddRect,
+    RemoveRect,
+    ToggleVisibility,
+    ChangeActiveLayer,
+    MoveLayerUp,
+    MoveLayerDown
+};
+
+struct Action {
+    ActionType type;
+    int layer_index;
+    Rect rect; // используем при Add/Remove
+    bool previous_visibility;
+    int previous_active_layer;
+};
+
+std::vector<Action> undo_stack;
+std::vector<Action> redo_stack;
+
 
 //std::vector<Rect> user_rects;
 std::vector<Layer> layers;
@@ -29,6 +49,68 @@ bool hovering_button1 = false;
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
+
+void undo() {
+    if (undo_stack.empty()) return;
+
+    Action action = undo_stack.back();
+    undo_stack.pop_back();
+
+    switch (action.type) {
+        case ActionType::AddRect:
+            if (!layers[action.layer_index].rects.empty()) {
+                layers[action.layer_index].rects.pop_back();
+                redo_stack.push_back(action);
+            }
+            break;
+        case ActionType::ToggleVisibility:
+            layers[action.layer_index].visible = action.previous_visibility;
+            redo_stack.push_back(action);
+            break;
+        case ActionType::ChangeActiveLayer:
+            std::swap(active_layer, action.previous_active_layer);
+            redo_stack.push_back(action);
+            break;
+        case ActionType::MoveLayerUp:
+        case ActionType::MoveLayerDown:
+            //инвертируем перемещение
+            std::swap(layers[action.layer_index], layers[action.layer_index + (action.type == ActionType::MoveLayerUp ? -1 : 1)]);
+            active_layer = action.layer_index;
+            redo_stack.push_back(action);
+            break;
+        default: break;
+    }
+}
+
+
+void redo() {
+    if (redo_stack.empty()) return;
+
+    Action action = redo_stack.back();
+    redo_stack.pop_back();
+
+    switch (action.type) {
+        case ActionType::AddRect:
+            layers[action.layer_index].rects.push_back(action.rect);
+            undo_stack.push_back(action);
+            break;
+        case ActionType::ToggleVisibility:
+            layers[action.layer_index].visible = !action.previous_visibility;
+            undo_stack.push_back(action);
+            break;
+        case ActionType::ChangeActiveLayer:
+            std::swap(active_layer, action.previous_active_layer);
+            undo_stack.push_back(action);
+            break;
+        case ActionType::MoveLayerUp:
+        case ActionType::MoveLayerDown:
+            std::swap(layers[action.layer_index], layers[action.layer_index + (action.type == ActionType::MoveLayerUp ? -1 : 1)]);
+            active_layer = action.layer_index + (action.type == ActionType::MoveLayerUp ? -1 : 1);
+            undo_stack.push_back(action);
+            break;
+        default: break;
+    }
+}
 
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     SDL_SetAppMetadata("Example Renderer Clear", "1.0", "com.example.renderer-clear");
@@ -97,11 +179,12 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
                 active_layer++;
             }
         }
-        //if (ctrl_pressed && event->key.scancode == SDL_SCANCODE_Z) {
-        //    if (!user_rects.empty()) {
-        //        user_rects.pop_back();
-        //    }
-        //}
+        if (ctrl_pressed && event->key.scancode == SDL_SCANCODE_Z) {
+            undo();
+        }
+        if (ctrl_pressed && event->key.scancode == SDL_SCANCODE_Y) {
+            redo();
+        }
     }
     if (event->type == SDL_EVENT_KEY_UP) {
         if (event->key.mod & SDL_KMOD_CTRL) {
@@ -124,7 +207,10 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
             button1_pressed = !button1_pressed;
         } else if (button1_pressed && !in_sidebar) {
             if (!layers.empty() && active_layer >= 0 && active_layer < layers.size()) {
-                layers[active_layer].rects.push_back(Rect{ mx - 50.0f, my - 30.0f, 100.0f, 60.0f });
+                Rect new_rect = Rect{ mx - 50.0f, my - 30.0f, 100.0f, 60.0f };
+                layers[active_layer].rects.push_back(new_rect);
+                undo_stack.push_back(Action{ ActionType::AddRect, active_layer, new_rect });
+                redo_stack.clear();  // сбрасываем redo при новом действии
             }
         }
         if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && event->button.button == SDL_BUTTON_LEFT) {
