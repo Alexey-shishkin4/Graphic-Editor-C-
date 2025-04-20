@@ -4,7 +4,7 @@
 #include <SDL3/SDL_main.h>
 #include <iostream>
 #include <algorithm>
-
+#include <math.h>
 #include <vector>
 
 struct Rect {
@@ -61,6 +61,9 @@ bool button1_pressed = false;
 bool ctrl_pressed = false;
 bool hovering_button1 = false;
 bool tool_selected = false;
+
+bool isDragging = false;
+SDL_FRect dragRect = {0}; // временный прямоугольник
 
 
 static SDL_Window *window = NULL;
@@ -206,32 +209,26 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
             redo();
         }
         if (event->key.scancode == SDL_SCANCODE_S) {
-            if (tool_selected) {
-                tool_selected = false;
+            if (current_tool == Tool::Select) {
                 current_tool = Tool::None;
             } else {
                 current_tool = Tool::Select;
-                tool_selected = true;
                 printf("Select tool.\n");
             }
         }
         if (event->key.scancode ==  SDL_SCANCODE_M) {
-            if (tool_selected) {
-                tool_selected = false;
+            if (current_tool == Tool::Move) {
                 current_tool = Tool::None;
             } else {
                 current_tool = Tool::Move;
-                tool_selected = true;
                 printf("Move tool.\n");
             }
         }
         if (event->key.scancode == SDL_SCANCODE_E) {
-            if (tool_selected) {
-                tool_selected = false;
+            if (current_tool == Tool::Erase) {
                 current_tool = Tool::None;
             } else {
                 current_tool = Tool::Erase;
-                tool_selected = true;
                 printf("Erase tool.\n");
             }
         }
@@ -241,7 +238,60 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
             ctrl_pressed = false;
         }
     }
+    if (button1_pressed) {
+        switch (event->type) {
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                if (event->button.button == SDL_BUTTON_LEFT) {
+                    isDragging = true;
+                    dragRect.x = event->button.x;
+                    dragRect.y = event->button.y;
+                    dragRect.w = 0;
+                    dragRect.h = 0;
+                }
+                break;
 
+            case SDL_EVENT_MOUSE_MOTION:
+                if (isDragging) {
+                    float x1 = dragRect.x;
+                    float y1 = dragRect.y;
+                    float x2 = event->motion.x;
+                    float y2 = event->motion.y;
+
+                    dragRect.x = fminf(x1, x2);
+                    dragRect.y = fminf(y1, y2);
+                    dragRect.w = fabsf(x2 - x1);
+                    dragRect.h = fabsf(y2 - y1);
+                }
+                break;
+
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+                if (event->button.button == SDL_BUTTON_LEFT && isDragging) {
+                    isDragging = false;
+                    if (dragRect.w > 0 && dragRect.h > 0) {
+                        Rect new_rect = Rect{
+                            dragRect.x,
+                            dragRect.y,
+                            dragRect.w,
+                            dragRect.h
+                        };
+            
+                        // Добавляем прямоугольник в активный слой
+                        layers[active_layer].rects.push_back(new_rect);
+            
+                        // Добавляем в undo стек
+                        undo_stack.push_back(Action{
+                            ActionType::AddRect,
+                            active_layer,
+                            new_rect
+                        });
+            
+                        // Очищаем redo стек
+                        redo_stack.clear();
+                    }
+                }
+                break;
+        }
+    }
     if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && event->button.button == SDL_BUTTON_LEFT) {
         float mx = static_cast<float>(event->button.x);
         float my = static_cast<float>(event->button.y);
@@ -257,10 +307,10 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
             button1_pressed = !button1_pressed;
         } else if (button1_pressed && !in_sidebar) {
             if (!layers.empty() && active_layer >= 0 && active_layer < layers.size()) {
-                Rect new_rect = Rect{ mx - 50.0f, my - 30.0f, 100.0f, 60.0f };
-                layers[active_layer].rects.push_back(new_rect);
-                undo_stack.push_back(Action{ ActionType::AddRect, active_layer, new_rect });
-                redo_stack.clear();  // сбрасываем redo при новом действии
+                //Rect new_rect = Rect{ mx - 50.0f, my - 30.0f, 100.0f, 60.0f };
+                //layers[active_layer].rects.push_back(new_rect);
+                //undo_stack.push_back(Action{ ActionType::AddRect, active_layer, new_rect });
+                //redo_stack.clear();  // сбрасываем redo при новом действии
             }
         }
         for (int i = 0; i < (int)layers.size(); ++i) {
@@ -289,36 +339,30 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
 
         if (mx >= select_tool_button.x && mx <= select_tool_button.x + select_tool_button.w &&
             my >= select_tool_button.y && my <= select_tool_button.y + select_tool_button.h) {
-            if (tool_selected) {
-                tool_selected = false;
+            if (current_tool == Tool::Select) {
                 current_tool = Tool::None;
             } else {
                 current_tool = Tool::Select;
-                tool_selected = true;
                 printf("Select tool.\n");
             }
         }
 
         else if (mx >= move_tool_button.x && mx <= move_tool_button.x + move_tool_button.w &&
                 my >= move_tool_button.y && my <= move_tool_button.y + move_tool_button.h) {
-            if (tool_selected) {
-                tool_selected = false;
+            if (current_tool == Tool::Move) {
                 current_tool = Tool::None;
             } else {
                 current_tool = Tool::Move;
-                tool_selected = true;
                 printf("Move tool.\n");
             }
         }
 
         else if (mx >= erase_tool_button.x && mx <= erase_tool_button.x + erase_tool_button.w &&
                 my >= erase_tool_button.y && my <= erase_tool_button.y + erase_tool_button.h) {
-            if (tool_selected) {
-                tool_selected = false;
+            if (current_tool == Tool::Erase) {
                 current_tool = Tool::None;
             } else {
                 current_tool = Tool::Erase;
-                tool_selected = true;
                 printf("Erase tool.\n");
             }
         }
@@ -339,21 +383,27 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
     float mx = static_cast<float>(event->button.x);
     float my = static_cast<float>(event->button.y);
 
-    if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && current_tool == Tool::Move) {
-        for (auto& rect : layers[active_layer].rects) {
-            if (point_in_rect(mx, my, rect)) {
-                selected_rect = &rect;
-                drag_offset_x = mx - rect.x;
-                drag_offset_y = my - rect.y;
-                dragging = true;
-                break;
+    if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+        if (current_tool == Tool::Move) {
+            for (auto& rect : layers[active_layer].rects) {
+                if (point_in_rect(mx, my, rect)) {
+                    selected_rect = &rect;
+                    drag_offset_x = mx - rect.x;
+                    drag_offset_y = my - rect.y;
+                    dragging = true;
+                    break;
+                }
+            }
+        } else if (current_tool == Tool::Select) {
+            selected_rect = nullptr;
+            auto& rects = layers[active_layer].rects;
+            for (int i = static_cast<int>(rects.size()) - 1; i >= 0; --i) {
+                if (point_in_rect(mx, my, rects[i])) {
+                    selected_rect = &rects[i];
+                    break;
+                }
             }
         }
-    }
-
-    if (event->type == SDL_EVENT_MOUSE_MOTION && dragging && selected_rect) {
-        selected_rect->x = mx - drag_offset_x;
-        selected_rect->y = my - drag_offset_y;
     }
 
     if (event->type == SDL_EVENT_MOUSE_BUTTON_UP && dragging) {
@@ -461,15 +511,17 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
         }
     }
 
-    SDL_SetRenderDrawColor(renderer, 255, 100, 100, 255);
     for (const Layer& layer : layers) {
         if (!layer.visible) continue;
         for (const Rect& r : layer.rects) {
             SDL_FRect rect = { r.x, r.y, r.w, r.h };
+
+            SDL_SetRenderDrawColor(renderer, 160, 160, 160, 255);
             SDL_RenderFillRect(renderer, &rect);
 
-            if (selected_rect ==  &r) {
-                SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255);  // Жёлтая рамка
+            if (&r == selected_rect) {
+                SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+                SDL_RenderRect(renderer, &rect);
             }
         }
     }
