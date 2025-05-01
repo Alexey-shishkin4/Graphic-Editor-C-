@@ -325,14 +325,6 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
                 active_layer = i; // Выбор слоя
             }
         }
-        if (current_tool == Tool::Select) {
-            selected_rect = nullptr;
-            for (auto& rect : layers[active_layer].rects) {
-                if (point_in_rect(mx, my, rect)) {
-                    selected_rect = &rect;
-                }
-            }
-        }
         SDL_FRect select_tool_button = { 10.0f, 400.0f, 80.0f, 30.0f };
         SDL_FRect move_tool_button   = { 10.0f, 440.0f, 80.0f, 30.0f };
         SDL_FRect erase_tool_button  = { 10.0f, 480.0f, 80.0f, 30.0f };
@@ -369,15 +361,6 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         
     }
 
-    if (event->type == SDL_EVENT_MOUSE_MOTION) {
-        float mx = static_cast<float>(event->motion.x);
-        float my = static_cast<float>(event->motion.y);
-    
-        SDL_FRect button1 = { 10.0f, 20.0f, 80.0f, 40.0f };
-        hovering_button1 = (mx >= button1.x && mx <= button1.x + button1.w &&
-                            my >= button1.y && my <= button1.y + button1.h);
-    }
-
     static bool dragging = false;
     static float drag_offset_x = 0, drag_offset_y = 0;
     float mx = static_cast<float>(event->button.x);
@@ -394,15 +377,20 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
                     break;
                 }
             }
-        } else if (current_tool == Tool::Select) {
+        } 
+        if (current_tool == Tool::Select) {
             selected_rect = nullptr;
-            auto& rects = layers[active_layer].rects;
-            for (int i = static_cast<int>(rects.size()) - 1; i >= 0; --i) {
-                if (point_in_rect(mx, my, rects[i])) {
-                    selected_rect = &rects[i];
-                    break;
+            for (auto& rect : layers[active_layer].rects) {
+                if (point_in_rect(mx, my, rect)) {
+                    selected_rect = &rect;
                 }
             }
+        }
+        if (current_tool == Tool::Erase) {
+            auto& rects = layers[active_layer].rects;
+            rects.erase(std::remove_if(rects.begin(), rects.end(), [mx, my](const Rect& r) {
+                return point_in_rect(mx, my, r);
+            }), rects.end());
         }
     }
 
@@ -410,13 +398,19 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
         dragging = false;
     }
 
-    if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN && current_tool == Tool::Erase) {
-        auto& rects = layers[active_layer].rects;
-        rects.erase(std::remove_if(rects.begin(), rects.end(), [mx, my](const Rect& r) {
-            return point_in_rect(mx, my, r);
-        }), rects.end());
-    }
+    if (event->type == SDL_EVENT_MOUSE_MOTION) {
+        float mx = static_cast<float>(event->motion.x);
+        float my = static_cast<float>(event->motion.y);
 
+        if (dragging && current_tool == Tool::Move && selected_rect) {
+            selected_rect->x = mx - drag_offset_x;
+            selected_rect->y = my - drag_offset_y;
+        }
+    
+        SDL_FRect button1 = { 10.0f, 20.0f, 80.0f, 40.0f };
+        hovering_button1 = (mx >= button1.x && mx <= button1.x + button1.w &&
+                            my >= button1.y && my <= button1.y + button1.h);
+    }
 
     return SDL_APP_CONTINUE;
 }
