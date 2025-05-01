@@ -12,6 +12,38 @@ bool point_in_rect(float x, float y, const SDL_FRect& r) {
 }
 
 
+SDL_FPoint screenToWorld(int x, int y) {
+    return SDL_FPoint{ static_cast<float>(x), static_cast<float>(y) };
+}
+
+void drawCircle(SDL_Renderer* renderer, float centerX, float centerY, float radius) {
+    int x = radius;
+    int y = 0;
+    int err = 0;
+
+    while (x >= y) {
+        SDL_RenderPoint(renderer, centerX + x, centerY + y);
+        SDL_RenderPoint(renderer, centerX + y, centerY + x);
+        SDL_RenderPoint(renderer, centerX - y, centerY + x);
+        SDL_RenderPoint(renderer, centerX - x, centerY + y);
+        SDL_RenderPoint(renderer, centerX - x, centerY - y);
+        SDL_RenderPoint(renderer, centerX - y, centerY - x);
+        SDL_RenderPoint(renderer, centerX + y, centerY - x);
+        SDL_RenderPoint(renderer, centerX + x, centerY - y);
+
+        if (err <= 0) {
+            y += 1;
+            err += 2 * y + 1;
+        }
+        if (err > 0) {
+            x -= 1;
+            err -= 2 * x + 1;
+        }
+    }
+}
+
+
+
 Editor::Editor() {
     SDL_SetAppMetadata("Graphic Editor", "1.0", "renderer-clear");
 
@@ -98,6 +130,23 @@ void Editor::handle_event(SDL_Event& e) {
         }
     }
 
+    if (e.type == SDL_EVENT_MOUSE_WHEEL) {
+        const Uint16 mod = SDL_GetModState();
+        const bool ctrlHeld = (mod & SDL_KMOD_CTRL);
+    
+        if (ctrlHeld) {
+            brushSize += e.wheel.y;  // e.wheel.y > 0 вверх, < 0 вниз
+            if (brushSize < 1.0f) brushSize = 1.0f;
+            if (brushSize > 50.0f) brushSize = 50.0f;
+            printf("Brush size: %.1f\n", brushSize);
+        }// else {
+        //    // Масштаб камеры
+        //    if (e.wheel.y > 0)
+        //        camera.zoom *= 1.1f;
+        //    else if (e.wheel.y < 0)
+        //        camera.zoom /= 1.1f;
+        //}
+    }
     // Обработка событий мыши
     if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
         handle_mouse_button_down(e.button);
@@ -123,7 +172,6 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
                        my >= sidebar_rect.y && my <= sidebar_rect.y + sidebar_rect.h);
 
     if (button_event.button == SDL_BUTTON_LEFT) {
-        // Обработка кнопки GUI
         if (in_button1) {
             button1_pressed = !button1_pressed;
             return;
@@ -169,16 +217,6 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
             return;
         }
 
-        // Добавление прямоугольника при нажатой GUI-кнопке
-        //if (button1_pressed && !in_sidebar) {
-        //    if (!layers.empty() && active_layer >= 0 && active_layer < static_cast<int>(layers.size())) {
-        //        Rect new_rect = { mx - 50.0f, my - 30.0f, 100.0f, 60.0f };
-        //        layers[active_layer].rects.push_back(new_rect);
-        //        undoManager.add_action(Action{ ActionType::AddRect, active_layer, new_rect });
-        //        return;
-        //    }
-        //}
-
         // Поведение инструментов
         if (current_tool == Tool::Move) {
             for (auto& rect : layers[active_layer].rects) {
@@ -210,6 +248,15 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
                 }), rects.end());
         }
 
+        if (current_tool == Tool::Brush) {
+            isBrushing = true;
+            brushStrokes.clear();
+            float mouseX, mouseY;
+            SDL_GetMouseState(&mouseX, &mouseY);
+            SDL_FPoint worldMouse = screenToWorld(mouseX, mouseY);
+            brushStrokes.push_back({ worldMouse.x, worldMouse.y, 4 });
+        }
+
         // Начало выделения прямоугольной области
         if (button1_pressed) {
             isDragging = true;
@@ -234,6 +281,28 @@ void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
     hovering_button1 = (mx >= button1.x && mx <= button1.x + button1.w &&
                         my >= button1.y && my <= button1.y + button1.h);
 
+                        
+    if (isBrushing && current_tool == Tool::Brush) {
+        SDL_FPoint worldMouse = screenToWorld(mx, my);
+
+        if (lastBrushX >= 0 && lastBrushY >= 0) {
+            float dx = worldMouse.x - lastBrushX;
+            float dy = worldMouse.y - lastBrushY;
+            float dist = std::hypot(dx, dy);
+            int steps = static_cast<int>(dist / 1.5f);  // 1.5f — шаг интерполяции
+
+            for (int i = 1; i <= steps; ++i) {
+                float t = i / static_cast<float>(steps);
+                float ix = lastBrushX + t * dx;
+                float iy = lastBrushY + t * dy;
+                brushStrokes.push_back({ix, iy, brushSize});
+            }
+        }
+
+        lastBrushX = worldMouse.x;
+        lastBrushY = worldMouse.y;
+    }
+
     if (button1_pressed) {
         if (isDragging) {
             float x1 = dragRect.x;
@@ -250,8 +319,28 @@ void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
 }
 
 void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
+    lastBrushX = lastBrushY = -1;
     if (dragging) {
         dragging = false;
+    }
+
+    if (current_tool == Tool::Brush && button_event.button == SDL_BUTTON_LEFT && isBrushing) {
+        isBrushing = false;
+    
+        // Добавляем все круги как один объект на активный слой
+        if (!brushStrokes.empty()) {
+            // save_state(); // Для undo
+    
+            // Добавляем круги на слой
+            for (const auto& circle : brushStrokes) {
+                // Здесь вы добавляете круг в rects или другой контейнер вашего слоя
+                // Возможно, вам нужно использовать какой-то класс/структуру для представления всех кругов кисти как единого объекта
+                layers[active_layer].rects.push_back(Rect(circle.x, circle.y, circle.radius, circle.radius));
+            }
+    
+            // Очищаем список "мазков" кисти
+            brushStrokes.clear();
+        }
     }
 
     if (button1_pressed) {
@@ -272,6 +361,7 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
         }
     }
 }
+
 
 
 void Editor::toggle_tool(Tool tool) {
@@ -399,6 +489,14 @@ void Editor::render() {
         
         SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255);  // рамка
         SDL_RenderFillRect(renderer, &preview);
+    }
+
+    if (isBrushing && current_tool == Tool::Brush) {
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // красный
+    
+        for (const auto& circle : brushStrokes) {
+            drawCircle(renderer, circle.x, circle.y, circle.radius);
+        }
     }
 
 

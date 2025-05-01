@@ -10,8 +10,19 @@ enum class Tool {
     Brush
 };
 
-struct Rect {
-    float x, y, w, h;
+class Rect {
+    public:
+        float x, y, w, h;
+    
+        // Конструктор, принимающий значения x, y, w, h
+        Rect(float x, float y, float w, float h)
+            : x(x), y(y), w(w), h(h) {}
+    
+        // Можно добавить другие методы, если нужно
+};
+
+struct Circle {
+    float x, y, radius;
 };
 
 struct Stroke {
