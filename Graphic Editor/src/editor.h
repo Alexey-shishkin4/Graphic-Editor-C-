@@ -25,6 +25,7 @@ private:
     int active_layer = 0;
     Rect* selected_rect = nullptr;
 
+    float drag_offset_x = 0, drag_offset_y = 0;
     bool dragging = false;
     bool isDragging = false;
     SDL_FRect dragRect = {0}; // временный прямоугольник

@@ -111,9 +111,6 @@ void Editor::handle_event(SDL_Event& e) {
 }
 
 void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
-    static bool dragging = false;
-    static float drag_offset_x = 0, drag_offset_y = 0;
-
     float mx = static_cast<float>(button_event.x);
     float my = static_cast<float>(button_event.y);
 
@@ -173,14 +170,14 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
         }
 
         // Добавление прямоугольника при нажатой GUI-кнопке
-        if (button1_pressed && !in_sidebar) {
-            if (!layers.empty() && active_layer >= 0 && active_layer < static_cast<int>(layers.size())) {
-                Rect new_rect = { mx - 50.0f, my - 30.0f, 100.0f, 60.0f };
-                layers[active_layer].rects.push_back(new_rect);
-                undoManager.add_action(Action{ ActionType::AddRect, active_layer, new_rect });
-                return;
-            }
-        }
+        //if (button1_pressed && !in_sidebar) {
+        //    if (!layers.empty() && active_layer >= 0 && active_layer < static_cast<int>(layers.size())) {
+        //        Rect new_rect = { mx - 50.0f, my - 30.0f, 100.0f, 60.0f };
+        //        layers[active_layer].rects.push_back(new_rect);
+        //        undoManager.add_action(Action{ ActionType::AddRect, active_layer, new_rect });
+        //        return;
+        //    }
+        //}
 
         // Поведение инструментов
         if (current_tool == Tool::Move) {
@@ -190,6 +187,7 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
                     drag_offset_x = mx - rect.x;
                     drag_offset_y = my - rect.y;
                     dragging = true;
+                    printf("dragging is true\n");
                     break;
                 }
             }
@@ -225,11 +223,8 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
 
 
 void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
-    static float drag_offset_x = 0, drag_offset_y = 0;
-
     float mx = static_cast<float>(motion_event.x);
     float my = static_cast<float>(motion_event.y);
-
     if (dragging && current_tool == Tool::Move && selected_rect) {
         selected_rect->x = mx - drag_offset_x;
         selected_rect->y = my - drag_offset_y;
@@ -258,6 +253,7 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
     if (dragging) {
         dragging = false;
     }
+
     if (button1_pressed) {
         if (button_event.button == SDL_BUTTON_LEFT && isDragging) {
             isDragging = false;
@@ -268,23 +264,15 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
                     dragRect.w,
                     dragRect.h
                 };
-    
-                // Добавляем прямоугольник в активный слой
-                layers[active_layer].rects.push_back(new_rect);
-    
-                // Добавляем в undo стек
-                undoManager.add_action(Action{
-                    ActionType::AddRect,
-                    active_layer,
-                    new_rect
-                });
-    
-                // Очищаем redo стек
-                //redo_stack.clear();
+                if (!layers.empty() && active_layer >= 0 && active_layer < static_cast<int>(layers.size())) {
+                    layers[active_layer].rects.push_back(new_rect);
+                    undoManager.add_action(Action{ ActionType::AddRect, active_layer, new_rect });
+                }
             }
         }
     }
 }
+
 
 void Editor::toggle_tool(Tool tool) {
     if (current_tool == tool) {
@@ -397,6 +385,22 @@ void Editor::render() {
             }
         }
     }
+
+    // Показываем прямоугольник при растягивании
+    if (isDragging && dragRect.w > 0 && dragRect.h > 0) {
+        SDL_FRect preview = {
+            dragRect.x,
+            dragRect.y,
+            dragRect.w,
+            dragRect.h
+        };
+        SDL_SetRenderDrawColor(renderer, 0, 255, 0, 128);  // полупрозрачный зелёный
+        SDL_RenderFillRect(renderer, &preview);
+        
+        SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255);  // рамка
+        SDL_RenderFillRect(renderer, &preview);
+    }
+
 
     SDL_RenderPresent(renderer);
 }
