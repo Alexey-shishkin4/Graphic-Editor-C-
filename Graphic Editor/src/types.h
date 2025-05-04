@@ -107,3 +107,21 @@ enum class ActionType {
     MoveLayerDown,
     DrawBrushStroke,
 };
+
+class DrawableImageBackground : public Drawable {
+    public:
+        SDL_Texture* texture;
+        int width, height;
+    
+        DrawableImageBackground(SDL_Texture* tex, int w, int h)
+            : texture(tex), width(w), height(h) {}
+    
+        void draw(SDL_Renderer* renderer, float scale, int offsetX, int offsetY) const override {
+            SDL_FRect dstRect = {
+                offsetX, offsetY,
+                width * scale,
+                height * scale
+            };
+            SDL_RenderTexture(renderer, texture, nullptr, &dstRect);
+        }
+    };

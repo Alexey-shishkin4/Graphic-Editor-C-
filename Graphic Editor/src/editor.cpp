@@ -568,6 +568,14 @@ void Editor::render() {
 
     for (const Layer& layer : layers) {
         if (!layer.visible) continue;
+
+        for (const Layer& layer : layers) {
+            if (!layer.visible) continue;
+        
+            for (const Drawable* obj : layer.objects) {
+                obj->draw(renderer, scale, offsetX, offsetY);
+            }
+        }
     
         for (const Rect& r : layer.rects) {
             r.draw(renderer, scale, offsetX, offsetY);
@@ -632,4 +640,36 @@ void Editor::render() {
 
 
     SDL_RenderPresent(renderer);
+}
+
+void Editor::importImage(const std::string& path) {
+    SDL_Surface* surface = IMG_Load(path.c_str());
+    if (!surface) {
+        SDL_Log("Load error!");
+        return;
+    }
+
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    int w = surface->w;
+    int h = surface->h;
+    SDL_DestroySurface(surface);
+
+    // создаём слой
+    Layer newLayer;
+    newLayer.name = "Image Layer";
+    newLayer.visible = true;
+    newLayer.canvasWidth = w;
+    newLayer.canvasHeight = h;
+
+    // добавляем фон
+    Drawable* bg = new DrawableImageBackground(texture, w, h);
+    newLayer.objects.push_back(bg);
+
+    layers.push_back(std::move(newLayer));
+    active_layer = layers.size() - 1;
+
+    // сброс масштаба и смещения
+    scale = 1.0f;
+    offsetX = 0;
+    offsetY = 0;
 }

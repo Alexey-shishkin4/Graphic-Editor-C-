@@ -1,5 +1,6 @@
 #pragma once
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_image.h>
 #include <vector>
 #include <string>
 #include "layer.h"
@@ -50,4 +51,5 @@ private:
     void handle_mouse_button_up(SDL_MouseButtonEvent& button_event);
     void toggle_tool(Tool tool);
     void render();
+    void importImage(const std::string& path);
 };
