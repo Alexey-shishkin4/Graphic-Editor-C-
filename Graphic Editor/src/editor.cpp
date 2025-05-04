@@ -19,6 +19,14 @@ SDL_FPoint screenToWorld(float screenX, float screenY, float scale, float offset
     return world;
 }
 
+SDL_FPoint worldToScreen(float worldX, float worldY, float scale, float offsetX, float offsetY) {
+    SDL_FPoint screen;
+    screen.x = worldX * scale + offsetX;
+    screen.y = worldY * scale + offsetY;
+    return screen;
+}
+
+
 void drawCircle(SDL_Renderer* renderer, float centerX, float centerY, float radius) {
     int x = radius;
     int y = 0;
@@ -327,6 +335,7 @@ void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
         float mouseX, mouseY;
         SDL_GetMouseState(&mouseX, &mouseY);
 
+        // Преобразуем экранные координаты в мировые
         SDL_FPoint worldMouse = screenToWorld(mouseX, mouseY, scale, offsetX, offsetY);
         BrushStroke& stroke = brushStrokes.back();
 
@@ -336,17 +345,25 @@ void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
             float dist = std::hypot(dx, dy);
             int steps = static_cast<int>(dist / 1.5f);
 
-            for (int i = 1; i <= steps; ++i) {
+            // Расчет промежуточных точек
+            for (int i = 0; i <= steps; ++i) {
                 float t = i / static_cast<float>(steps);
                 float ix = lastBrushX + t * dx;
                 float iy = lastBrushY + t * dy;
-                stroke.addCircle(ix, iy, brushSize);
+
+                // Преобразуем мировые координаты обратно в экранные, чтобы рисовать
+                SDL_FPoint screenPos = worldToScreen(ix, iy, scale, offsetX, offsetY);
+
+                // Добавляем круг с координатами в экранных координатах
+                stroke.addCircle(screenPos.x, screenPos.y, brushSize);  // Учитываем масштаб
             }
         }
 
         lastBrushX = worldMouse.x;
         lastBrushY = worldMouse.y;
     }
+
+
 
 
     if (button1_pressed) {
@@ -370,6 +387,33 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
         dragging = false;
     }
 
+    if (current_tool == Tool::Brush && button_event.button == SDL_BUTTON_LEFT && isBrushing) {
+        isBrushing = false;
+        
+        if (!brushStrokes.empty()) {
+            const BrushStroke& stroke = brushStrokes.back();
+            
+            for (const auto& circle : stroke.circles) {
+                SDL_FPoint worldPos = screenToWorld(circle.x, circle.y, scale, offsetX, offsetY);
+    
+                SDL_Rect r = {
+                    static_cast<int>(worldPos.x - circle.radius),
+                    static_cast<int>(worldPos.y - circle.radius),
+                    static_cast<int>(2 * circle.radius),
+                    static_cast<int>(2 * circle.radius)
+                };
+    
+                Rect new_rect(r, SDL_Color{160, 160, 160, 255});
+                layers[active_layer].rects.push_back(new_rect);
+            }
+            
+            brushStrokes.clear();
+            lastBrushX = -1;
+            lastBrushY = -1;
+        }
+    }
+    
+
     if (button1_pressed) {
         if (button_event.button == SDL_BUTTON_LEFT && isDragging) {
             isDragging = false;
@@ -392,36 +436,6 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
                 SDL_Rect r = { 
                     static_cast<int>(worldStartX), 
                     static_cast<int>(worldStartY), 
-                    scaledWidth, 
-                    scaledHeight 
-                };
-    
-                Rect new_rect(r, SDL_Color({160, 160, 160, 255}));
-    
-                if (!layers.empty() && active_layer >= 0 && active_layer < static_cast<int>(layers.size())) {
-                    layers[active_layer].rects.push_back(new_rect);
-                    undoManager.add_action(Action{ ActionType::AddRect, active_layer, new_rect });
-                }
-            }
-        }
-    }
-    
-
-    if (button1_pressed) {
-        if (button_event.button == SDL_BUTTON_LEFT && isDragging) {
-            isDragging = false;
-            if (dragRect.w > 0 && dragRect.h > 0) {
-                float mouseX, mouseY;
-                SDL_GetMouseState(&mouseX, &mouseY);
-                SDL_FPoint worldPos = screenToWorld(mouseX, mouseY, scale, offsetX, offsetY);
-                
-                // Отменяем масштабирование для размеров прямоугольника
-                int scaledWidth = static_cast<int>(dragRect.w / scale);
-                int scaledHeight = static_cast<int>(dragRect.h / scale);
-    
-                SDL_Rect r = { 
-                    static_cast<int>(worldPos.x), 
-                    static_cast<int>(worldPos.y), 
                     scaledWidth, 
                     scaledHeight 
                 };
