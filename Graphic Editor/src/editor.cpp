@@ -334,31 +334,31 @@ void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
     if (isBrushing && current_tool == Tool::Brush) {
         float mouseX, mouseY;
         SDL_GetMouseState(&mouseX, &mouseY);
-
+        
         // Преобразуем экранные координаты в мировые
         SDL_FPoint worldMouse = screenToWorld(mouseX, mouseY, scale, offsetX, offsetY);
         BrushStroke& stroke = brushStrokes.back();
-
+        
         if (lastBrushX >= 0 && lastBrushY >= 0) {
             float dx = worldMouse.x - lastBrushX;
             float dy = worldMouse.y - lastBrushY;
             float dist = std::hypot(dx, dy);
             int steps = static_cast<int>(dist / 1.5f);
-
+        
             // Расчет промежуточных точек
             for (int i = 0; i <= steps; ++i) {
                 float t = i / static_cast<float>(steps);
                 float ix = lastBrushX + t * dx;
                 float iy = lastBrushY + t * dy;
-
+            
                 // Преобразуем мировые координаты обратно в экранные, чтобы рисовать
                 SDL_FPoint screenPos = worldToScreen(ix, iy, scale, offsetX, offsetY);
-
-                // Добавляем круг с координатами в экранных координатах
-                stroke.addCircle(screenPos.x, screenPos.y, brushSize);  // Учитываем масштаб
+            
+                // Теперь рисуем с корректным учетом масштаба и смещения
+                stroke.addCircle(screenPos.x, screenPos.y, brushSize);
             }
         }
-
+    
         lastBrushX = worldMouse.x;
         lastBrushY = worldMouse.y;
     }
@@ -392,8 +392,10 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
         
         if (!brushStrokes.empty()) {
             const BrushStroke& stroke = brushStrokes.back();
-            
+            int c = 0;
             for (const auto& circle : stroke.circles) {
+                c += 1;
+                if (c == 1) continue;
                 SDL_FPoint worldPos = screenToWorld(circle.x, circle.y, scale, offsetX, offsetY);
     
                 SDL_Rect r = {
@@ -587,10 +589,13 @@ void Editor::render() {
     }
 
     if (isBrushing && current_tool == Tool::Brush) {
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // красный
+        SDL_SetRenderDrawColor(renderer, 160, 160, 160, 255); // красный
     
         for (const auto& stroke : brushStrokes) {
+            int c = 0;
             for (const auto& circle : stroke.circles) {
+                c += 1;
+                if (c == 1) continue;
                 drawCircle(renderer, circle.x, circle.y, circle.radius);
             }
         }
