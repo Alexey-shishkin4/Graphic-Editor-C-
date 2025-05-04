@@ -5,6 +5,7 @@
 
 struct Layer {
     std::vector<Rect> rects;
+    std::vector<BrushStroke> strokes;
     bool visible = true;
     std::string name;
 

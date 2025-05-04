@@ -409,6 +409,7 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
     
                 Rect new_rect(r, SDL_Color{160, 160, 160, 255});
                 stroke.rects.push_back(new_rect);
+
             }
 
             undoManager.add_action(Action{
@@ -420,6 +421,7 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
                 stroke                         
             });
             stroke.circles.clear();
+            layers[active_layer].strokes.push_back(stroke);
             lastBrushX = -1;
             lastBrushY = -1;
         }
@@ -581,7 +583,7 @@ void Editor::render() {
                 SDL_RenderRect(renderer, &scaledRect);  // SDL3 поддерживает SDL_FRect*
             }
         }
-        for (const auto& stroke : brushStrokes) {
+        for (const auto& stroke : layer.strokes) {
             for (const Rect& r : stroke.rects) {
                 r.draw(renderer, scale, offsetX, offsetY);
                 if (&r == selected_rect) {
