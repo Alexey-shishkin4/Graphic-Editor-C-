@@ -5,7 +5,7 @@
 #include <vector>
 
 bool point_in_rect(float x, float y, const Rect& r) {
-    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    return x >= r.rect.x && x <= r.rect.x + r.rect.w && y >= r.rect.y && y <= r.rect.y + r.rect.h;
 }
 bool point_in_rect(float x, float y, const SDL_FRect& r) {
     return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -139,13 +139,34 @@ void Editor::handle_event(SDL_Event& e) {
             if (brushSize < 1.0f) brushSize = 1.0f;
             if (brushSize > 50.0f) brushSize = 50.0f;
             printf("Brush size: %.1f\n", brushSize);
-        }// else {
-        //    // Масштаб камеры
-        //    if (e.wheel.y > 0)
-        //        camera.zoom *= 1.1f;
-        //    else if (e.wheel.y < 0)
-        //        camera.zoom /= 1.1f;
-        //}
+        } else {
+            // Масштаб камеры
+            float mouseX, mouseY;
+            SDL_GetMouseState(&mouseX, &mouseY); // получаем координаты мыши
+
+            // До масштабирования — позиция в мировых координатах
+            float worldX = (mouseX - offsetX) / scale;
+            float worldY = (mouseY - offsetY) / scale;
+
+            // Сохраняем старый масштаб
+            float oldScale = scale;
+
+            // Меняем масштаб
+            if (e.wheel.y > 0) {
+                scale += 0.1f;
+                if (scale > 5.0f) scale = 5.0f;
+            } else if (e.wheel.y < 0) {
+                scale -= 0.1f;
+                if (scale < 0.1f) scale = 0.1f;
+            }
+
+            // После изменения масштаба: пересчитываем offset так, чтобы мышь "смотрела" на ту же мировую точку
+            offsetX = mouseX - worldX * scale;
+            offsetY = mouseY - worldY * scale;
+
+            printf("scale = %.2f, offsetX = %.2f, offsetY = %.2f\n", scale, offsetX, offsetY);
+            printf("%f %f %f\n", scale, offsetX, offsetY);
+        }
     }
     // Обработка событий мыши
     if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
@@ -156,6 +177,10 @@ void Editor::handle_event(SDL_Event& e) {
     }
     if (e.type == SDL_EVENT_MOUSE_BUTTON_UP) {
         handle_mouse_button_up(e.button);
+    }
+    if (e.type == SDL_EVENT_MOUSE_MOTION && e.key.scancode == SDL_BUTTON_LEFT && (e.key.mod & SDL_KMOD_CTRL)) {
+        offsetX += e.motion.xrel;
+        offsetY += e.motion.yrel;
     }
 }
 
@@ -219,17 +244,22 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
 
         // Поведение инструментов
         if (current_tool == Tool::Move) {
+            // Преобразуем координаты мыши в мировые
+            float world_mx = (mx - offsetX) / scale;
+            float world_my = (my - offsetY) / scale;
+        
             for (auto& rect : layers[active_layer].rects) {
-                if (point_in_rect(mx, my, rect)) {
+                if (point_in_rect(world_mx, world_my, rect)) {
                     selected_rect = &rect;
-                    drag_offset_x = mx - rect.x;
-                    drag_offset_y = my - rect.y;
+                    drag_offset_x = world_mx - rect.rect.x;
+                    drag_offset_y = world_my - rect.rect.y;
                     dragging = true;
                     printf("dragging is true\n");
                     break;
                 }
             }
         }
+        
 
         if (current_tool == Tool::Select) {
             selected_rect = nullptr;
@@ -273,8 +303,12 @@ void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
     float mx = static_cast<float>(motion_event.x);
     float my = static_cast<float>(motion_event.y);
     if (dragging && current_tool == Tool::Move && selected_rect) {
-        selected_rect->x = mx - drag_offset_x;
-        selected_rect->y = my - drag_offset_y;
+        // Опять преобразуем мышь в мировые координаты
+        float world_mx = (mx - offsetX) / scale;
+        float world_my = (my - offsetY) / scale;
+    
+        selected_rect->rect.x = world_mx - drag_offset_x;
+        selected_rect->rect.y = world_my - drag_offset_y;
     }
     
     SDL_FRect button1 = { 10.0f, 20.0f, 80.0f, 40.0f };
@@ -335,7 +369,9 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
             for (const auto& circle : brushStrokes) {
                 // Здесь вы добавляете круг в rects или другой контейнер вашего слоя
                 // Возможно, вам нужно использовать какой-то класс/структуру для представления всех кругов кисти как единого объекта
-                layers[active_layer].rects.push_back(Rect(circle.x, circle.y, circle.radius, circle.radius));
+                SDL_Rect r = { circle.x, circle.y, circle.radius, circle.radius };
+                Rect new_rect(r, SDL_Color({160, 160, 160, 255}));
+                layers[active_layer].rects.push_back(new_rect);
             }
     
             // Очищаем список "мазков" кисти
@@ -347,12 +383,14 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
         if (button_event.button == SDL_BUTTON_LEFT && isDragging) {
             isDragging = false;
             if (dragRect.w > 0 && dragRect.h > 0) {
-                Rect new_rect = Rect{
-                    dragRect.x,
-                    dragRect.y,
-                    dragRect.w,
-                    dragRect.h
-                };
+                SDL_Rect r = { dragRect.x, dragRect.y, dragRect.w, dragRect.h };
+                Rect new_rect(r, SDL_Color({160, 160, 160, 255}));
+                //Rect new_rect = Rect{
+                //    dragRect.x,
+                //    dragRect.y,
+                //    dragRect.w,
+                //    dragRect.h
+                //};
                 if (!layers.empty() && active_layer >= 0 && active_layer < static_cast<int>(layers.size())) {
                     layers[active_layer].rects.push_back(new_rect);
                     undoManager.add_action(Action{ ActionType::AddRect, active_layer, new_rect });
@@ -463,15 +501,20 @@ void Editor::render() {
 
     for (const Layer& layer : layers) {
         if (!layer.visible) continue;
+    
         for (const Rect& r : layer.rects) {
-            SDL_FRect rect = { r.x, r.y, r.w, r.h };
-
-            SDL_SetRenderDrawColor(renderer, 160, 160, 160, 255);
-            SDL_RenderFillRect(renderer, &rect);
-
+            r.draw(renderer, scale, offsetX, offsetY);
+            //printf("%d %d %d %d \n", r.rect.x * scale + offsetX, r.rect.y * scale + offsetY, r.rect.w, r.rect.h);
             if (&r == selected_rect) {
+                SDL_FRect scaledRect = {
+                    r.rect.x * scale + offsetX,
+                    r.rect.y * scale + offsetY,
+                    r.rect.w * scale,
+                    r.rect.h * scale
+                };
+    
                 SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-                SDL_RenderRect(renderer, &rect);
+                SDL_RenderRect(renderer, &scaledRect);  // SDL3 поддерживает SDL_FRect*
             }
         }
     }

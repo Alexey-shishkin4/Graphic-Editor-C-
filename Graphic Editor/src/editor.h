@@ -39,8 +39,8 @@ private:
     //BrushState brushState;
     UndoManager undoManager;
 
-    SDL_Color currentColor = {0, 0, 0, 255};
-    int currentThickness = 2;
+    float scale = 1.0f; // Коэффициент масштабирования
+    int offsetX = 0, offsetY = 0; // Сдвиг холста
 
     void handle_event(SDL_Event &e);
     void handle_mouse_button_down(SDL_MouseButtonEvent& button_event);
