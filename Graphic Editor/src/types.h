@@ -1,7 +1,9 @@
 #pragma once
+#include "screen_utils.h"
 #include <vector>
 #include <SDL3/SDL.h>
 #include "Drawable.h"
+#include <math.h>
 
 
 enum class Tool {
@@ -57,31 +59,41 @@ struct Stroke {
 class BrushStroke : public Drawable {
     public:
         std::vector<Circle> circles;
+        std::vector<Rect> rects;
     
         void addCircle(float x, float y, float radius) {
             circles.emplace_back(x, y, radius);
         }
+
+        BrushStroke() = default;
+        BrushStroke(const BrushStroke& other) = default;  // Copy constructor
+        BrushStroke& operator=(const BrushStroke& other) = default;  // Copy assignment
     
         void draw(SDL_Renderer* renderer, float scale, int offsetX, int offsetY) const override {
             for (const auto& c : circles) {
-                int cx = static_cast<int>(c.x * scale + offsetX);
-                int cy = static_cast<int>(c.y * scale + offsetY);
-                int r = static_cast<int>(c.radius * scale);
-                drawCircle(renderer, cx, cy, r);
+                SDL_FPoint worldPos = screenToWorld(c.x, c.y, scale, offsetX, offsetY);
+    
+                SDL_FRect r = {
+                    static_cast<float>(worldPos.x - c.radius),
+                    static_cast<float>(worldPos.y - c.radius),
+                    static_cast<float>(2 * c.radius / scale),
+                    static_cast<float>(2 * c.radius / scale)
+                };
+                SDL_RenderFillRect(renderer, &r);
             }
         }
     
     private:
         void drawCircle(SDL_Renderer* renderer, int cx, int cy, int radius) const {
-            const int diameter = radius * 2;
-            for (int w = 0; w < diameter; ++w) {
-                for (int h = 0; h < diameter; ++h) {
-                    int dx = radius - w;
-                    int dy = radius - h;
-                    if ((dx * dx + dy * dy) <= (radius * radius)) {
-                        SDL_RenderPoint(renderer, cx + dx, cy + dy);
-                    }
-                }
+            for (float y = -radius; y <= radius; ++y) {
+                float x_max = sqrtf(radius * radius - y * y);  // Максимальное значение x при данной y
+                SDL_FRect rect = {
+                    cx - x_max,
+                    cy + y,
+                    2 * x_max,
+                    1.0f
+                };
+                SDL_RenderFillRect(renderer, &rect);
             }
         }
 };
@@ -93,5 +105,5 @@ enum class ActionType {
     ChangeActiveLayer,
     MoveLayerUp,
     MoveLayerDown,
-    StrokeDrawn
+    DrawBrushStroke,
 };

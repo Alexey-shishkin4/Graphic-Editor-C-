@@ -1,6 +1,6 @@
 #include "undo.h"
 #include <string>
-
+#include "editor.h"
 
 void UndoManager::add_action(const Action& action) {
     if (index + 1 < (int)history.size())
@@ -9,7 +9,7 @@ void UndoManager::add_action(const Action& action) {
     ++index;
 }
 
-void UndoManager::undo(std::vector<Layer>& layers, int& active_layer) {
+void UndoManager::undo(Editor& editor, std::vector<Layer>& layers, int& active_layer) {
     if (index < 0) return;
 
     const Action& action = history[index];
@@ -37,11 +37,14 @@ void UndoManager::undo(std::vector<Layer>& layers, int& active_layer) {
             );
             active_layer = action.layerIndex;
             break;
-        //case ActionType::StrokeDrawn:
-        //    if (!layers[action.layerIndex].strokes.empty()) {
-        //        layers[action.layerIndex].strokes.pop_back();
-        //    }
-        //    break;
+        case ActionType::DrawBrushStroke: // Обработка кисти
+            // Remove the last brush stroke (undo the drawing)
+            printf("crtl+z!\n");
+            if (!editor.brushStrokes.empty()) {
+                printf("remove!\n");
+                editor.brushStrokes.pop_back();
+            }
+            break;
         default:
             break;
     }
@@ -49,7 +52,7 @@ void UndoManager::undo(std::vector<Layer>& layers, int& active_layer) {
     --index;
 }
 
-void UndoManager::redo(std::vector<Layer>& layers, int& active_layer) {
+void UndoManager::redo(Editor& editor, std::vector<Layer>& layers, int& active_layer) {
     if (index + 1 >= (int)history.size()) return;
 
     ++index;
@@ -76,9 +79,9 @@ void UndoManager::redo(std::vector<Layer>& layers, int& active_layer) {
             );
             active_layer = action.layerIndex + (action.type == ActionType::MoveLayerUp ? -1 : 1);
             break;
-        //case ActionType::StrokeDrawn:
-        //    layers[action.layerIndex].strokes.push_back(action.stroke);
-        //    break;
+        case ActionType::DrawBrushStroke: // Обработка повторного действия кисти
+            editor.brushStrokes.push_back(action.brushStroke);
+            break;
         default:
             break;
     }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <math.h>
 #include <vector>
+#include "undo.h"
 
 bool point_in_rect(float x, float y, const Rect& r) {
     return x >= r.rect.x && x <= r.rect.x + r.rect.w && y >= r.rect.y && y <= r.rect.y + r.rect.h;
@@ -127,9 +128,9 @@ void Editor::handle_event(SDL_Event& e) {
                 active_layer++;
             }
         } else if (e.key.scancode == SDL_SCANCODE_Z && (e.key.mod & SDL_KMOD_CTRL)) {
-            undoManager.undo(layers, active_layer);
+            undoManager.undo(*this, layers, active_layer);
         } else if (e.key.scancode == SDL_SCANCODE_Y && (e.key.mod & SDL_KMOD_CTRL)) {
-            undoManager.redo(layers, active_layer);
+            undoManager.redo(*this, layers, active_layer);
         } else if (e.key.scancode == SDL_SCANCODE_S) {
             toggle_tool(Tool::Select);
         } else if (e.key.scancode == SDL_SCANCODE_M) {
@@ -291,7 +292,7 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
 
         if (current_tool == Tool::Brush) {
             isBrushing = true;
-            brushStrokes.clear();
+            //brushStrokes.clear();
         
             float mouseX, mouseY;
             SDL_GetMouseState(&mouseX, &mouseY);
@@ -366,6 +367,7 @@ void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
 
 
 
+
     if (button1_pressed) {
         if (isDragging) {
             float x1 = dragRect.x;
@@ -391,7 +393,7 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
         isBrushing = false;
         
         if (!brushStrokes.empty()) {
-            const BrushStroke& stroke = brushStrokes.back();
+            BrushStroke& stroke = brushStrokes.back();
             int c = 0;
             for (const auto& circle : stroke.circles) {
                 c += 1;
@@ -406,10 +408,18 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
                 };
     
                 Rect new_rect(r, SDL_Color{160, 160, 160, 255});
-                layers[active_layer].rects.push_back(new_rect);
+                stroke.rects.push_back(new_rect);
             }
-            
-            brushStrokes.clear();
+
+            undoManager.add_action(Action{
+                ActionType::DrawBrushStroke,
+                active_layer,                  
+                Rect{SDL_Rect{10, 10, 10, 10}, SDL_Color{160, 160, 160, 255}},                        
+                layers[active_layer].visible,
+                active_layer,                  
+                stroke                         
+            });
+            stroke.circles.clear();
             lastBrushX = -1;
             lastBrushY = -1;
         }
@@ -569,6 +579,22 @@ void Editor::render() {
     
                 SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
                 SDL_RenderRect(renderer, &scaledRect);  // SDL3 поддерживает SDL_FRect*
+            }
+        }
+        for (const auto& stroke : brushStrokes) {
+            for (const Rect& r : stroke.rects) {
+                r.draw(renderer, scale, offsetX, offsetY);
+                if (&r == selected_rect) {
+                    SDL_FRect scaledRect = {
+                        r.rect.x * scale + offsetX,
+                        r.rect.y * scale + offsetY,
+                        r.rect.w * scale,
+                        r.rect.h * scale
+                    };
+    
+                    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+                    SDL_RenderRect(renderer, &scaledRect);  // SDL3 поддерживает SDL_FRect*
+                }
             }
         }
     }

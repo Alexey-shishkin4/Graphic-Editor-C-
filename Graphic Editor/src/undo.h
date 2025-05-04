@@ -3,13 +3,15 @@
 #include "types.h"
 #include "layer.h"
 
+class Editor;
+
 struct Action {
     ActionType type;
     int layerIndex;
     Rect rect;
-    Stroke stroke;
     bool previous_visibility;
     int previous_active_layer;
+    BrushStroke brushStroke;
 };
 
 class UndoManager {
@@ -18,6 +20,6 @@ class UndoManager {
 
 public:
     void add_action(const Action& action);
-    void undo(std::vector<Layer>& layers, int& active_layer);
-    void redo(std::vector<Layer>& layers, int& active_layer);
+    void undo(Editor& editor, std::vector<Layer>& layers, int& active_layer);
+    void redo(Editor& editor, std::vector<Layer>& layers, int& active_layer);
 };

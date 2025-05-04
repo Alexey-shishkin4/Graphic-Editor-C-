@@ -4,11 +4,14 @@
 #include <string>
 #include "layer.h"
 #include "types.h"
-#include "undo.h"
 #include "tools.h"
+
+class UndoManager;
 
 class Editor {
 public:
+    std::vector<BrushStroke> brushStrokes;
+    
     Editor();
     ~Editor();
     void run();
@@ -31,7 +34,6 @@ private:
     SDL_FRect dragRect = {0}; // временный прямоугольник
 
     bool isBrushing = false;
-    std::vector<BrushStroke> brushStrokes;
     float lastBrushX = -1, lastBrushY = -1;
     float brushSize = 4.0f;
 
