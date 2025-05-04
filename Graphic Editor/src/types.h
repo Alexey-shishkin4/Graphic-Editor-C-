@@ -54,6 +54,38 @@ struct Stroke {
     float thickness;
 };
 
+class BrushStroke : public Drawable {
+    public:
+        std::vector<Circle> circles;
+    
+        void addCircle(float x, float y, float radius) {
+            circles.emplace_back(x, y, radius);
+        }
+    
+        void draw(SDL_Renderer* renderer, float scale, int offsetX, int offsetY) const override {
+            for (const auto& c : circles) {
+                int cx = static_cast<int>(c.x * scale + offsetX);
+                int cy = static_cast<int>(c.y * scale + offsetY);
+                int r = static_cast<int>(c.radius * scale);
+                drawCircle(renderer, cx, cy, r);
+            }
+        }
+    
+    private:
+        void drawCircle(SDL_Renderer* renderer, int cx, int cy, int radius) const {
+            const int diameter = radius * 2;
+            for (int w = 0; w < diameter; ++w) {
+                for (int h = 0; h < diameter; ++h) {
+                    int dx = radius - w;
+                    int dy = radius - h;
+                    if ((dx * dx + dy * dy) <= (radius * radius)) {
+                        SDL_RenderPoint(renderer, cx + dx, cy + dy);
+                    }
+                }
+            }
+        }
+};
+
 enum class ActionType {
     AddRect,
     RemoveRect,

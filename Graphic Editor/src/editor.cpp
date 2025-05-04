@@ -12,8 +12,11 @@ bool point_in_rect(float x, float y, const SDL_FRect& r) {
 }
 
 
-SDL_FPoint screenToWorld(int x, int y) {
-    return SDL_FPoint{ static_cast<float>(x), static_cast<float>(y) };
+SDL_FPoint screenToWorld(float screenX, float screenY, float scale, float offsetX, float offsetY) {
+    SDL_FPoint world;
+    world.x = (screenX - offsetX) / scale;
+    world.y = (screenY - offsetY) / scale;
+    return world;
 }
 
 void drawCircle(SDL_Renderer* renderer, float centerX, float centerY, float radius) {
@@ -281,10 +284,14 @@ void Editor::handle_mouse_button_down(SDL_MouseButtonEvent& button_event) {
         if (current_tool == Tool::Brush) {
             isBrushing = true;
             brushStrokes.clear();
+        
             float mouseX, mouseY;
             SDL_GetMouseState(&mouseX, &mouseY);
-            SDL_FPoint worldMouse = screenToWorld(mouseX, mouseY);
-            brushStrokes.push_back({ worldMouse.x, worldMouse.y, 4 });
+            SDL_FPoint worldMouse = screenToWorld(mouseX, mouseY, scale, offsetX, offsetY);
+        
+            BrushStroke stroke;
+            stroke.addCircle(worldMouse.x, worldMouse.y, 4.0f);
+            brushStrokes.push_back(stroke);
         }
 
         // Начало выделения прямоугольной области
@@ -317,25 +324,30 @@ void Editor::handle_mouse_motion(SDL_MouseMotionEvent& motion_event) {
 
                         
     if (isBrushing && current_tool == Tool::Brush) {
-        SDL_FPoint worldMouse = screenToWorld(mx, my);
+        float mouseX, mouseY;
+        SDL_GetMouseState(&mouseX, &mouseY);
+
+        SDL_FPoint worldMouse = screenToWorld(mouseX, mouseY, scale, offsetX, offsetY);
+        BrushStroke& stroke = brushStrokes.back();
 
         if (lastBrushX >= 0 && lastBrushY >= 0) {
             float dx = worldMouse.x - lastBrushX;
             float dy = worldMouse.y - lastBrushY;
             float dist = std::hypot(dx, dy);
-            int steps = static_cast<int>(dist / 1.5f);  // 1.5f — шаг интерполяции
+            int steps = static_cast<int>(dist / 1.5f);
 
             for (int i = 1; i <= steps; ++i) {
                 float t = i / static_cast<float>(steps);
                 float ix = lastBrushX + t * dx;
                 float iy = lastBrushY + t * dy;
-                brushStrokes.push_back({ix, iy, brushSize});
+                stroke.addCircle(ix, iy, brushSize);
             }
         }
 
         lastBrushX = worldMouse.x;
         lastBrushY = worldMouse.y;
     }
+
 
     if (button1_pressed) {
         if (isDragging) {
@@ -358,39 +370,34 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
         dragging = false;
     }
 
-    if (current_tool == Tool::Brush && button_event.button == SDL_BUTTON_LEFT && isBrushing) {
-        isBrushing = false;
-    
-        // Добавляем все круги как один объект на активный слой
-        if (!brushStrokes.empty()) {
-            // save_state(); // Для undo
-    
-            // Добавляем круги на слой
-            for (const auto& circle : brushStrokes) {
-                // Здесь вы добавляете круг в rects или другой контейнер вашего слоя
-                // Возможно, вам нужно использовать какой-то класс/структуру для представления всех кругов кисти как единого объекта
-                SDL_Rect r = { circle.x, circle.y, circle.radius, circle.radius };
-                Rect new_rect(r, SDL_Color({160, 160, 160, 255}));
-                layers[active_layer].rects.push_back(new_rect);
-            }
-    
-            // Очищаем список "мазков" кисти
-            brushStrokes.clear();
-        }
-    }
-
     if (button1_pressed) {
         if (button_event.button == SDL_BUTTON_LEFT && isDragging) {
             isDragging = false;
             if (dragRect.w > 0 && dragRect.h > 0) {
-                SDL_Rect r = { dragRect.x, dragRect.y, dragRect.w, dragRect.h };
+                float mouseX, mouseY;
+                SDL_GetMouseState(&mouseX, &mouseY);
+                
+                // Преобразуем координаты мыши в мировые
+                SDL_FPoint worldPos = screenToWorld(mouseX, mouseY, scale, offsetX, offsetY);
+                
+                // Отменяем масштабирование для размеров прямоугольника
+                int scaledWidth = static_cast<int>(dragRect.w / scale);
+                int scaledHeight = static_cast<int>(dragRect.h / scale);
+                
+                // Вычисляем смещение для левого верхнего угла
+                float worldStartX = screenToWorld(dragRect.x, dragRect.y, scale, offsetX, offsetY).x;
+                float worldStartY = screenToWorld(dragRect.x, dragRect.y, scale, offsetX, offsetY).y;
+                
+                // Теперь создаем новый прямоугольник с учетом смещения и масштаба
+                SDL_Rect r = { 
+                    static_cast<int>(worldStartX), 
+                    static_cast<int>(worldStartY), 
+                    scaledWidth, 
+                    scaledHeight 
+                };
+    
                 Rect new_rect(r, SDL_Color({160, 160, 160, 255}));
-                //Rect new_rect = Rect{
-                //    dragRect.x,
-                //    dragRect.y,
-                //    dragRect.w,
-                //    dragRect.h
-                //};
+    
                 if (!layers.empty() && active_layer >= 0 && active_layer < static_cast<int>(layers.size())) {
                     layers[active_layer].rects.push_back(new_rect);
                     undoManager.add_action(Action{ ActionType::AddRect, active_layer, new_rect });
@@ -398,6 +405,38 @@ void Editor::handle_mouse_button_up(SDL_MouseButtonEvent& button_event) {
             }
         }
     }
+    
+
+    if (button1_pressed) {
+        if (button_event.button == SDL_BUTTON_LEFT && isDragging) {
+            isDragging = false;
+            if (dragRect.w > 0 && dragRect.h > 0) {
+                float mouseX, mouseY;
+                SDL_GetMouseState(&mouseX, &mouseY);
+                SDL_FPoint worldPos = screenToWorld(mouseX, mouseY, scale, offsetX, offsetY);
+                
+                // Отменяем масштабирование для размеров прямоугольника
+                int scaledWidth = static_cast<int>(dragRect.w / scale);
+                int scaledHeight = static_cast<int>(dragRect.h / scale);
+    
+                SDL_Rect r = { 
+                    static_cast<int>(worldPos.x), 
+                    static_cast<int>(worldPos.y), 
+                    scaledWidth, 
+                    scaledHeight 
+                };
+    
+                Rect new_rect(r, SDL_Color({160, 160, 160, 255}));
+    
+                if (!layers.empty() && active_layer >= 0 && active_layer < static_cast<int>(layers.size())) {
+                    layers[active_layer].rects.push_back(new_rect);
+                    undoManager.add_action(Action{ ActionType::AddRect, active_layer, new_rect });
+                }
+            }
+        }
+    }
+    
+    
 }
 
 
@@ -504,7 +543,6 @@ void Editor::render() {
     
         for (const Rect& r : layer.rects) {
             r.draw(renderer, scale, offsetX, offsetY);
-            //printf("%d %d %d %d \n", r.rect.x * scale + offsetX, r.rect.y * scale + offsetY, r.rect.w, r.rect.h);
             if (&r == selected_rect) {
                 SDL_FRect scaledRect = {
                     r.rect.x * scale + offsetX,
@@ -537,10 +575,13 @@ void Editor::render() {
     if (isBrushing && current_tool == Tool::Brush) {
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // красный
     
-        for (const auto& circle : brushStrokes) {
-            drawCircle(renderer, circle.x, circle.y, circle.radius);
+        for (const auto& stroke : brushStrokes) {
+            for (const auto& circle : stroke.circles) {
+                drawCircle(renderer, circle.x, circle.y, circle.radius);
+            }
         }
     }
+    
 
 
     SDL_RenderPresent(renderer);

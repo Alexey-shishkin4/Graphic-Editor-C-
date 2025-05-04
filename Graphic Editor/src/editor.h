@@ -31,7 +31,7 @@ private:
     SDL_FRect dragRect = {0}; // временный прямоугольник
 
     bool isBrushing = false;
-    std::vector<Circle> brushStrokes;
+    std::vector<BrushStroke> brushStrokes;
     float lastBrushX = -1, lastBrushY = -1;
     float brushSize = 4.0f;
 
