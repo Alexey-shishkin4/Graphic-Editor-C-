@@ -21,7 +21,7 @@ class Rect : public Drawable {
     
         Rect(SDL_Rect r, SDL_Color c) : rect(r), color(c) {}
     
-        void draw(SDL_Renderer* renderer, float scale, int offsetX, int offsetY) const override {
+        void draw(SDL_Renderer* renderer, float scale, float offsetX, float offsetY) const override {
             SDL_FRect scaledRect = {
                 rect.x * scale + offsetX,
                 rect.y * scale + offsetY,
@@ -33,7 +33,7 @@ class Rect : public Drawable {
             SDL_RenderFillRect(renderer, &scaledRect);
         }
     
-        bool contains(int x, int y, float scale, int offsetX, int offsetY) const override {
+        bool contains(int x, int y, float scale, float offsetX, float offsetY) const override {
             float scaledX = rect.x * scale + offsetX;
             float scaledY = rect.y * scale + offsetY;
             float scaledW = rect.w * scale;
@@ -69,7 +69,7 @@ class BrushStroke : public Drawable {
         BrushStroke(const BrushStroke& other) = default;  // Copy constructor
         BrushStroke& operator=(const BrushStroke& other) = default;  // Copy assignment
     
-        void draw(SDL_Renderer* renderer, float scale, int offsetX, int offsetY) const override {
+        void draw(SDL_Renderer* renderer, float scale, float offsetX, float offsetY) const override {
             for (const auto& c : circles) {
                 SDL_FPoint worldPos = screenToWorld(c.x, c.y, scale, offsetX, offsetY);
     
@@ -116,7 +116,7 @@ class DrawableImageBackground : public Drawable {
         DrawableImageBackground(SDL_Texture* tex, int w, int h)
             : texture(tex), width(w), height(h) {}
     
-        void draw(SDL_Renderer* renderer, float scale, int offsetX, int offsetY) const override {
+        void draw(SDL_Renderer* renderer, float scale, float offsetX, float offsetY) const override {
             SDL_FRect dstRect = {
                 offsetX, offsetY,
                 width * scale,

@@ -39,10 +39,11 @@ void UndoManager::undo(Editor& editor, std::vector<Layer>& layers, int& active_l
             break;
         case ActionType::DrawBrushStroke: // Обработка кисти
             // Remove the last brush stroke (undo the drawing)
-            printf("crtl+z!\n");
             if (!editor.brushStrokes.empty()) {
-                printf("remove!\n");
                 editor.brushStrokes.pop_back();
+            }
+            if (!layers[action.layerIndex].strokes.empty()) {
+                layers[action.layerIndex].strokes.pop_back();
             }
             break;
         default:

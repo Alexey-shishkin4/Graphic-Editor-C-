@@ -4,6 +4,11 @@
 #include <math.h>
 #include <vector>
 #include "undo.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#include <cstring>
+#include "tinyfiledialogs.h"
+
 
 bool point_in_rect(float x, float y, const Rect& r) {
     return x >= r.rect.x && x <= r.rect.x + r.rect.w && y >= r.rect.y && y <= r.rect.y + r.rect.h;
@@ -71,6 +76,15 @@ Editor::Editor() {
 
     layers.push_back(Layer{});
     layers[0].name = "Layer 1";
+
+    const char* filters[] = { "*.png", "*.jpg", "*.jpeg", "*.bmp" };
+    const char* filePath = tinyfd_openFileDialog("Выберите изображение", "", 4, filters, "Изображения", 0);
+
+    if (filePath) {
+        importImage(filePath);
+    } else {
+        SDL_Log("Файл не выбран.");
+    }
 }
 
 Editor::~Editor() {
@@ -506,66 +520,6 @@ void Editor::render() {
     float sidebar_max_width = 100.0f;
     float sidebar_current_width = 0.0f;
 
-    if (background_done) {
-        float sidebar_elapsed = (now_ms - sidebar_start_time) / 1000.0f;
-        float sidebar_duration = 1.0f; // 1 секунда
-        sidebar_progress = sidebar_elapsed / sidebar_duration;
-        if (sidebar_progress > 1.0f) sidebar_progress = 1.0f;
-        sidebar_current_width = sidebar_max_width * sidebar_progress;
-
-        SDL_FRect sidebar = { 0.0f, 0.0f, sidebar_current_width, 720.0f };
-        SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
-        SDL_RenderFillRect(renderer, &sidebar);
-
-        if (sidebar_progress == 1.0f) {
-            SDL_FRect button1 = { 10.0f, 20.0f, 80.0f, 40.0f };
-            if (button1_pressed) {
-                SDL_SetRenderDrawColor(renderer, 100, 100, 255, 255);  // нажатая
-            } else if (hovering_button1) {
-                SDL_SetRenderDrawColor(renderer, 180, 180, 255, 255);  // при наведении
-            } else {
-                SDL_SetRenderDrawColor(renderer, 150, 150, 255, 255);  // обычная
-            }
-            SDL_RenderFillRect(renderer, &button1);
-
-            // Рисуем список слоёв
-            int y = 80;
-            for (int i = 0; i < (int)layers.size(); ++i) {
-                SDL_FRect layer_button = { 10.0f, (float)y, 80.0f, 30.0f };
-                if (i == active_layer) {
-                    SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
-                } else {
-                    SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
-                }
-                SDL_RenderFillRect(renderer, &layer_button);
-
-                // Нарисовать индикатор видимости
-                if (layers[i].visible) {
-                    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // зелёный
-                } else {
-                    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // красный
-                }
-                SDL_FRect eye = { layer_button.x + 60.0f, layer_button.y + 5.0f, 15.0f, 15.0f };
-                SDL_RenderFillRect(renderer, &eye);
-
-                y += 40;
-            }
-            for (int i = 1; i < tool_count + 1; ++i) {
-                SDL_FRect button = { 10.0f, 360.0f + i * 40.0f, 80.0f, 30.0f };
-        
-                SDL_SetRenderDrawColor(renderer,
-                    (int)current_tool == i ? 180 : 100,
-                    (int)current_tool == i ? 180 : 100,
-                    (int)current_tool == i ? 180 : 100,
-                    255);
-                SDL_RenderFillRect(renderer, &button);
-        
-                // Optionally draw text labels
-                //DrawText(renderer, font, tool_names[i], button.x + 5, button.y + 5);
-            }
-        }
-    }
-
     for (const Layer& layer : layers) {
         if (!layer.visible) continue;
 
@@ -639,37 +593,157 @@ void Editor::render() {
     
 
 
+    if (background_done) {
+        float sidebar_elapsed = (now_ms - sidebar_start_time) / 1000.0f;
+        float sidebar_duration = 1.0f; // 1 секунда
+        sidebar_progress = sidebar_elapsed / sidebar_duration;
+        if (sidebar_progress > 1.0f) sidebar_progress = 1.0f;
+        sidebar_current_width = sidebar_max_width * sidebar_progress;
+
+        SDL_FRect sidebar = { 0.0f, 0.0f, sidebar_current_width, 720.0f };
+        SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
+        SDL_RenderFillRect(renderer, &sidebar);
+
+        if (sidebar_progress == 1.0f) {
+            SDL_FRect button1 = { 10.0f, 20.0f, 80.0f, 40.0f };
+            if (button1_pressed) {
+                SDL_SetRenderDrawColor(renderer, 100, 100, 255, 255);  // нажатая
+            } else if (hovering_button1) {
+                SDL_SetRenderDrawColor(renderer, 180, 180, 255, 255);  // при наведении
+            } else {
+                SDL_SetRenderDrawColor(renderer, 150, 150, 255, 255);  // обычная
+            }
+            SDL_RenderFillRect(renderer, &button1);
+
+            // Рисуем список слоёв
+            int y = 80;
+            for (int i = 0; i < (int)layers.size(); ++i) {
+                SDL_FRect layer_button = { 10.0f, (float)y, 80.0f, 30.0f };
+                if (i == active_layer) {
+                    SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
+                } else {
+                    SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255);
+                }
+                SDL_RenderFillRect(renderer, &layer_button);
+
+                // Нарисовать индикатор видимости
+                if (layers[i].visible) {
+                    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // зелёный
+                } else {
+                    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // красный
+                }
+                SDL_FRect eye = { layer_button.x + 60.0f, layer_button.y + 5.0f, 15.0f, 15.0f };
+                SDL_RenderFillRect(renderer, &eye);
+
+                y += 40;
+            }
+            for (int i = 1; i < tool_count + 1; ++i) {
+                SDL_FRect button = { 10.0f, 360.0f + i * 40.0f, 80.0f, 30.0f };
+        
+                SDL_SetRenderDrawColor(renderer,
+                    (int)current_tool == i ? 180 : 100,
+                    (int)current_tool == i ? 180 : 100,
+                    (int)current_tool == i ? 180 : 100,
+                    255);
+                SDL_RenderFillRect(renderer, &button);
+        
+                // Optionally draw text labels
+                //DrawText(renderer, font, tool_names[i], button.x + 5, button.y + 5);
+            }
+        }
+    }
+
+    
     SDL_RenderPresent(renderer);
 }
 
-void Editor::importImage(const std::string& path) {
-    SDL_Surface* surface = IMG_Load(path.c_str());
+SDL_Surface* ConvertToBMP(int width, int height, unsigned char* data) {
+    // Создаем новый SDL_Surface с форматом BMP (SDL_PIXELFORMAT_RGBA32)
+    SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
     if (!surface) {
-        SDL_Log("Load error!");
+        SDL_Log("Surface creation failed: %s", SDL_GetError());
+        return nullptr;
+    }
+
+    // Копируем пиксели напрямую (уже в формате RGBA32)
+    memcpy(surface->pixels, data, width * height * 4);
+
+    return surface;
+}
+
+void Editor::importImage(const std::string& pathOverride = "") {
+    std::string path = pathOverride;
+
+    if (path.empty()) {
+        const char* filters[] = { "*.png", "*.jpg", "*.jpeg" };
+        const char* filename = tinyfd_openFileDialog(
+            "Выберите изображение",
+            "",
+            3,
+            filters,
+            "Изображения (PNG, JPG)",
+            0
+        );
+
+        if (!filename) {
+            SDL_Log("Файл не выбран.");
+            return;
+        }
+
+        path = filename;
+    }
+
+    int width, height, channels;
+    unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4); // force RGBA
+
+    if (!data) {
+        SDL_Log("stb_image load failed: %s", stbi_failure_reason());
         return;
     }
 
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    int w = surface->w;
-    int h = surface->h;
-    SDL_DestroySurface(surface);
+    // Конвертируем изображение в SDL_Surface
+    SDL_Surface* surface = ConvertToBMP(width, height, data);
+    stbi_image_free(data);  // Освобождаем память, использованную stb_image
 
-    // создаём слой
+    if (!surface) {
+        SDL_Log("Surface creation failed!");
+        return;
+    }
+
+    // Создание текстуры из поверхности
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    int imgWidth = surface->w;
+    int imgHeight = surface->h;
+    SDL_DestroySurface(surface);  // Убираем поверхность, она уже не нужна
+
+    // Получаем размеры окна
+    int windowWidth, windowHeight;
+    SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+
+    // Центрируем изображение
+    int centerX = (windowWidth - imgWidth) / 2;
+    int centerY = (windowHeight - imgHeight) / 2;
+
+    // Создание нового слоя
     Layer newLayer;
     newLayer.name = "Image Layer";
     newLayer.visible = true;
-    newLayer.canvasWidth = w;
-    newLayer.canvasHeight = h;
+    newLayer.canvasWidth = imgWidth;
+    newLayer.canvasHeight = imgHeight;
 
-    // добавляем фон
-    Drawable* bg = new DrawableImageBackground(texture, w, h);
+    // Устанавливаем смещение
+    //newLayer.offsetX = centerX;
+    //newLayer.offsetY = centerY;
+
+    // Добавляем фон
+    Drawable* bg = new DrawableImageBackground(texture, imgWidth, imgHeight);
     newLayer.objects.push_back(bg);
 
     layers.push_back(std::move(newLayer));
     active_layer = layers.size() - 1;
 
-    // сброс масштаба и смещения
+    // Сброс масштаба и смещения
     scale = 1.0f;
-    offsetX = 0;
-    offsetY = 0;
+    offsetX = centerX;
+    offsetY = centerY;
 }
