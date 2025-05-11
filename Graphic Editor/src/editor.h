@@ -26,6 +26,9 @@ private:
 
     std::vector<Layer> layers;
     int active_layer = 0;
+    int canvasWidth = 800;
+    int canvasHeight = 600;
+    SDL_Rect canvasRect = {0, 0, 800, 600};
     Rect* selected_rect = nullptr;
 
     float drag_offset_x = 0, drag_offset_y = 0;

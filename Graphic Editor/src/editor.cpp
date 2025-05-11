@@ -60,7 +60,6 @@ void drawCircle(SDL_Renderer* renderer, float centerX, float centerY, float radi
 }
 
 
-
 Editor::Editor() {
     SDL_SetAppMetadata("Graphic Editor", "1.0", "renderer-clear");
 
@@ -84,6 +83,11 @@ Editor::Editor() {
         importImage(filePath);
     } else {
         SDL_Log("Файл не выбран.");
+        int windowWidth, windowHeight;
+        SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+        int centerX = (windowWidth - canvasWidth) / 2;
+        int centerY = (windowHeight - canvasHeight) / 2;
+        canvasRect = {centerX, centerY, canvasWidth, canvasHeight};
     }
 }
 
@@ -514,8 +518,18 @@ void Editor::render() {
 
     if (t > 1.0f) t = 1.0f;
 
-    SDL_SetRenderDrawColorFloat(renderer, t, t, t, SDL_ALPHA_OPAQUE_FLOAT);
+    //SDL_SetRenderDrawColorFloat(renderer, t, t, t, SDL_ALPHA_OPAQUE_FLOAT);
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
     SDL_RenderClear(renderer);
+
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_FRect canvasFRect = {
+        static_cast<float>(canvasRect.x) + offsetX,
+        static_cast<float>(canvasRect.y) + offsetY,
+        static_cast<float>(canvasRect.w),
+        static_cast<float>(canvasRect.h)
+    };
+    SDL_RenderFillRect(renderer, &canvasFRect);
 
     float sidebar_max_width = 100.0f;
     float sidebar_current_width = 0.0f;
@@ -653,7 +667,7 @@ void Editor::render() {
         }
     }
 
-    
+
     SDL_RenderPresent(renderer);
 }
 
@@ -687,6 +701,11 @@ void Editor::importImage(const std::string& pathOverride = "") {
 
         if (!filename) {
             SDL_Log("Файл не выбран.");
+            int windowWidth, windowHeight;
+            SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+            int centerX = (windowWidth - canvasWidth) / 2;
+            int centerY = (windowHeight - canvasHeight) / 2;
+            canvasRect = {centerX, centerY, canvasWidth, canvasHeight};
             return;
         }
 
@@ -714,6 +733,8 @@ void Editor::importImage(const std::string& pathOverride = "") {
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
     int imgWidth = surface->w;
     int imgHeight = surface->h;
+    canvasWidth = imgWidth;
+    canvasHeight = imgHeight;
     SDL_DestroySurface(surface);  // Убираем поверхность, она уже не нужна
 
     // Получаем размеры окна
@@ -723,6 +744,7 @@ void Editor::importImage(const std::string& pathOverride = "") {
     // Центрируем изображение
     int centerX = (windowWidth - imgWidth) / 2;
     int centerY = (windowHeight - imgHeight) / 2;
+    canvasRect = {centerX, centerY, canvasWidth, canvasHeight};
 
     // Создание нового слоя
     Layer newLayer;
