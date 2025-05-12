@@ -11,9 +11,16 @@ struct Layer {
     int canvasHeight = 0;
     bool visible = true;
     std::string name;
-    
+
+    SDL_Surface* surface = nullptr;  // Добавлено
+    SDL_Texture* texture = nullptr;  // Добавлено
 
     Layer() = default;
     Layer(const Layer&) = default;
     Layer& operator=(const Layer&) = default;
+
+    ~Layer() {
+        if (surface) SDL_DestroySurface(surface);
+        if (texture) SDL_DestroyTexture(texture);
+    }
 };

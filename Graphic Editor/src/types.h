@@ -11,7 +11,8 @@ enum class Tool {
     Select,
     Move,
     Erase,
-    Brush
+    Brush,
+    Pen
 };
 
 class Rect : public Drawable {
@@ -41,6 +42,16 @@ class Rect : public Drawable {
     
             return x >= scaledX && x < scaledX + scaledW &&
                    y >= scaledY && y < scaledY + scaledH;
+        }
+
+        void drawToSurface(SDL_Surface* surface) const override {
+            // Получаем детали формата
+            const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(surface->format->format);
+            Uint32 c = SDL_MapRGBA(fmt, color.r, color.g, color.b, color.a);
+
+            // Целочисленный прямоугольник в логике слоя
+            SDL_Rect dst = { rect.x, rect.y, rect.w, rect.h };
+            SDL_FillSurfaceRect(surface, &dst, c);
         }
 };
 
@@ -80,6 +91,28 @@ class BrushStroke : public Drawable {
                     static_cast<float>(2 * c.radius / scale)
                 };
                 SDL_RenderFillRect(renderer, &r);
+            }
+        }
+
+        void drawToSurface(SDL_Surface* surface) const override {
+            Uint32 c = SDL_MapRGBA(surface->format,
+                                color.r, color.g, color.b, color.a);
+            auto plot = [&](int px, int py){
+                if (px<0||py<0||px>=surface->w||py>=surface->h) return;
+                reinterpret_cast<Uint32*>(surface->pixels)[py*surface->w + px] = c;
+            };
+            for (auto& cir : circles) {
+                int cx = int(cir.x), cy = int(cir.y), r = int(cir.radius);
+                // брезенхем
+                int x = r, y = 0, err = 0;
+                while (x >= y) {
+                    plot(cx + x, cy + y); plot(cx + y, cy + x);
+                    plot(cx - y, cy + x); plot(cx - x, cy + y);
+                    plot(cx - x, cy - y); plot(cx - y, cy - x);
+                    plot(cx + y, cy - x); plot(cx + x, cy - y);
+                    if (err <= 0) { y++; err += 2*y + 1; }
+                    if (err >  0) { x--; err -= 2*x + 1; }
+                }
             }
         }
     
@@ -124,4 +157,55 @@ class DrawableImageBackground : public Drawable {
             };
             SDL_RenderTexture(renderer, texture, nullptr, &dstRect);
         }
-    };
+
+        void drawToSurface(SDL_Surface* surface, SDL_Renderer* renderer) const override {
+            // захватим текстуру в пиксели через рендерер
+            std::vector<Uint32> buf(width*height);
+            // переключиться на рендеринг в эту текстуру
+            SDL_Texture* oldTarget = SDL_GetRenderTarget(renderer);
+            SDL_SetRenderTarget(renderer, texture);
+            // считать прямоугольник 0,0,width,height
+            SDL_RenderReadPixels(renderer, nullptr,
+                                surface->format->format,
+                                buf.data(), width * sizeof(Uint32));
+            // вернуть рендер-таргет
+            SDL_SetRenderTarget(renderer, oldTarget);
+            // скопировать в surface
+            std::memcpy(surface->pixels, buf.data(), buf.size()*sizeof(Uint32));
+        }
+};
+
+
+class PenTool {
+    public:
+    std::vector<SDL_FPoint> points;
+    bool isClosed = false;
+
+    void addPoint(SDL_FPoint pt) {
+        if (!points.empty()) {
+            SDL_FPoint first = points[0];
+            float dx = pt.x - first.x;
+            float dy = pt.y - first.y;
+            if (points.size() >= 3 && dx * dx + dy * dy < 25.0f) { // ближе 5 пикселей
+                isClosed = true;
+                return;
+            }
+        }
+        points.push_back(pt);
+    }
+
+    void reset() {
+        points.clear();
+        isClosed = false;
+    }
+
+    void render(SDL_Renderer* renderer) const {
+        if (points.empty()) return;
+        for (size_t i = 0; i < points.size() - 1; ++i) {
+            SDL_RenderLine(renderer, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
+        }
+        if (isClosed && points.size() > 2) {
+            SDL_RenderLine(renderer, points.back().x, points.back().y, points[0].x, points[0].y);
+        }
+    }
+};

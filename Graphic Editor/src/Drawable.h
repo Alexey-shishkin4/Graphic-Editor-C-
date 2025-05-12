@@ -11,4 +11,6 @@ public:
 
     // (Необязательно) Проверка попадания в объект — например, для выбора
     virtual bool contains(int x, int y, float scale, float offsetX, float offsetY) const { return false; }
+
+    virtual void drawToSurface(SDL_Surface* surface) const = 0;
 };

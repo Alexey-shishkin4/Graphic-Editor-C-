@@ -8,6 +8,7 @@
 #include "stb_image.h"
 #include <cstring>
 #include "tinyfiledialogs.h"
+#include <SDL3/SDL_surface.h>
 
 
 bool point_in_rect(float x, float y, const Rect& r) {
@@ -30,6 +31,24 @@ SDL_FPoint worldToScreen(float worldX, float worldY, float scale, float offsetX,
     screen.x = worldX * scale + offsetX;
     screen.y = worldY * scale + offsetY;
     return screen;
+}
+
+bool pointInPolygon(const SDL_FPoint& pt, const std::vector<SDL_FPoint>& polygon) {
+    // Ray Casting alg
+    int count = 0;
+    int n = polygon.size();
+    for (int i = 0; i < n; ++i) {
+        SDL_FPoint a = polygon[i];
+        SDL_FPoint b = polygon[(i + 1) % n];
+
+        if ((a.y > pt.y) != (b.y > pt.y)) {
+            float intersectX = (b.x - a.x) * (pt.y - a.y) / (b.y - a.y) + a.x;
+            if (pt.x < intersectX) {
+                ++count;
+            }
+        }
+    }
+    return (count % 2) == 1;
 }
 
 
@@ -73,8 +92,21 @@ Editor::Editor() {
         return;
     }
 
-    layers.push_back(Layer{});
-    layers[0].name = "Layer 1";
+    int width = canvasWidth;
+    int height = canvasHeight;
+
+    SDL_Surface* surf = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+
+    Layer baseLayer;
+    baseLayer.name = "Layer 1";
+    baseLayer.surface = surf;
+    baseLayer.texture = SDL_CreateTextureFromSurface(renderer, surf);
+    baseLayer.canvasWidth = width;
+    baseLayer.canvasHeight = height;
+    baseLayer.visible = true;
+
+    layers.push_back(std::move(baseLayer));
+    active_layer = 0;
 
     const char* filters[] = { "*.png", "*.jpg", "*.jpeg", "*.bmp" };
     const char* filePath = tinyfd_openFileDialog("Выберите изображение", "", 4, filters, "Изображения", 0);
@@ -122,10 +154,26 @@ void Editor::handle_event(SDL_Event& e) {
             }
         }
          else if (e.key.scancode == SDL_SCANCODE_N) {
-            Layer new_layer;
-            new_layer.name = "Layer " + std::to_string(layers.size() + 1);
-            layers.push_back(new_layer);
+            int width = canvasWidth;   // или какое-то значение по умолчанию
+            int height = canvasHeight;
+
+            SDL_Surface* surf = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+            if (!surf) {
+                printf("Failed to create surface for layer.\n");
+                return;
+            }
+
+            Layer layer;
+            layer.name = "Layer " + std::to_string(layers.size() + 1);
+            layer.surface = surf;
+            layer.texture = SDL_CreateTextureFromSurface(renderer, surf);
+            layer.canvasWidth = width;
+            layer.canvasHeight = height;
+            layer.visible = true;
+
+            layers.push_back(std::move(layer));
             active_layer = layers.size() - 1;
+
             printf("New layer added. Total: %zu\n", layers.size());
         } else if (e.key.scancode == SDL_SCANCODE_TAB) {
             active_layer = (active_layer + 1) % layers.size();
@@ -157,6 +205,9 @@ void Editor::handle_event(SDL_Event& e) {
             toggle_tool(Tool::Erase);
         } else if (e.key.scancode == SDL_SCANCODE_B) {
             toggle_tool(Tool::Brush);
+        } else if (e.key.scancode == SDL_SCANCODE_P) {
+            printf("Pen tool selected!\n");
+            toggle_tool(Tool::Pen);
         }
     }
 
@@ -211,6 +262,21 @@ void Editor::handle_event(SDL_Event& e) {
     if (e.type == SDL_EVENT_MOUSE_MOTION && e.key.scancode == SDL_BUTTON_LEFT && (e.key.mod & SDL_KMOD_CTRL)) {
         offsetX += e.motion.xrel;
         offsetY += e.motion.yrel;
+    }
+    if (current_tool == Tool::Pen) {
+        if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN && e.button.button == SDL_BUTTON_LEFT) {
+            SDL_FPoint pt = {(float)e.button.x, (float)e.button.y};
+            penTool.addPoint(pt);
+        }
+    
+        if (penTool.isClosed &&
+            e.type == SDL_EVENT_KEY_DOWN &&
+            e.key.scancode == SDL_SCANCODE_J &&
+            (e.key.mod & SDL_KMOD_CTRL)) {
+            SDL_Log("Pen tool is closed.");
+            createLayerFromSelection(penTool.points);
+            penTool.reset();
+        }
     }
 }
 
@@ -604,6 +670,19 @@ void Editor::render() {
             }
         }
     }
+
+    if (current_tool == Tool::Pen && !penTool.points.empty()) {
+        SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+        for (size_t i = 1; i < penTool.points.size(); ++i) {
+            SDL_RenderLine(renderer, penTool.points[i - 1].x, penTool.points[i - 1].y,
+                                     penTool.points[i].x, penTool.points[i].y);
+        }
+
+        if (penTool.isClosed) {
+            SDL_RenderLine(renderer, penTool.points.back().x, penTool.points.back().y,
+                                     penTool.points[0].x, penTool.points[0].y);
+        }
+    }
     
 
 
@@ -674,6 +753,7 @@ void Editor::render() {
 SDL_Surface* ConvertToBMP(int width, int height, unsigned char* data) {
     // Создаем новый SDL_Surface с форматом BMP (SDL_PIXELFORMAT_RGBA32)
     SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+    SDL_Log("I can create new Surface!");
     if (!surface) {
         SDL_Log("Surface creation failed: %s", SDL_GetError());
         return nullptr;
@@ -685,7 +765,7 @@ SDL_Surface* ConvertToBMP(int width, int height, unsigned char* data) {
     return surface;
 }
 
-void Editor::importImage(const std::string& pathOverride = "") {
+void Editor::importImage(const std::string& pathOverride) {
     std::string path = pathOverride;
 
     if (path.empty()) {
@@ -713,59 +793,117 @@ void Editor::importImage(const std::string& pathOverride = "") {
     }
 
     int width, height, channels;
-    unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4); // force RGBA
+    unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4); // RGBA
 
     if (!data) {
         SDL_Log("stb_image load failed: %s", stbi_failure_reason());
         return;
     }
 
-    // Конвертируем изображение в SDL_Surface
     SDL_Surface* surface = ConvertToBMP(width, height, data);
-    stbi_image_free(data);  // Освобождаем память, использованную stb_image
+    stbi_image_free(data);
 
     if (!surface) {
         SDL_Log("Surface creation failed!");
         return;
     }
 
-    // Создание текстуры из поверхности
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (!texture) {
+        SDL_Log("Texture creation failed!");
+        SDL_DestroySurface(surface);
+        return;
+    }
+
     int imgWidth = surface->w;
     int imgHeight = surface->h;
     canvasWidth = imgWidth;
     canvasHeight = imgHeight;
-    SDL_DestroySurface(surface);  // Убираем поверхность, она уже не нужна
 
-    // Получаем размеры окна
     int windowWidth, windowHeight;
     SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-
-    // Центрируем изображение
     int centerX = (windowWidth - imgWidth) / 2;
     int centerY = (windowHeight - imgHeight) / 2;
     canvasRect = {centerX, centerY, canvasWidth, canvasHeight};
 
-    // Создание нового слоя
     Layer newLayer;
     newLayer.name = "Image Layer";
     newLayer.visible = true;
     newLayer.canvasWidth = imgWidth;
     newLayer.canvasHeight = imgHeight;
+    newLayer.surface = surface;
+    newLayer.texture = texture;
 
-    // Устанавливаем смещение
-    //newLayer.offsetX = centerX;
-    //newLayer.offsetY = centerY;
-
-    // Добавляем фон
     Drawable* bg = new DrawableImageBackground(texture, imgWidth, imgHeight);
     newLayer.objects.push_back(bg);
 
     layers.push_back(std::move(newLayer));
     active_layer = layers.size() - 1;
 
-    // Сброс масштаба и смещения
     scale = 1.0f;
     offsetX = centerX;
     offsetY = centerY;
 }
+
+
+
+void Editor::createLayerFromSelection(const std::vector<SDL_FPoint>& polygon) {
+    if (polygon.size() < 3) return;
+
+    SDL_Surface* src = layers[active_layer].surface;  // src == nullptr 
+
+    SDL_Surface* newSurf = SDL_CreateSurface(src->w, src->h, SDL_PIXELFORMAT_RGBA32);
+    if (!newSurf) return;
+
+    SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
+
+    Uint32* srcPixels = (Uint32*)src->pixels;
+    Uint32* dstPixels = (Uint32*)newSurf->pixels;
+
+    for (int y = 0; y < src->h; ++y) {
+        for (int x = 0; x < src->w; ++x) {
+            SDL_FPoint pt = {(float)x, (float)y};
+            if (pointInPolygon(pt, polygon)) {
+                dstPixels[y * src->w + x] = srcPixels[y * src->w + x];
+            } else {
+                dstPixels[y * src->w + x] = 0; // прозрачный
+            }
+        }
+    }
+
+    Layer newLayer;
+    newLayer.surface = newSurf;
+    newLayer.texture = SDL_CreateTextureFromSurface(renderer, newSurf);
+    newLayer.visible = true;
+    newLayer.name = "Pen Selection";
+    layers.push_back(std::move(newLayer));
+    SDL_Log("Сработало?");
+}
+
+
+void Editor::updateLayerSurface(int index) {
+    if (index < 0 || index >= static_cast<int>(layers.size())) return;
+    Layer& layer = layers[index];
+    if (!layer.surface) return;
+
+    // полностью прозрачный пиксель в формате RGBA32 == 0
+    Uint32 transparent = 0;
+
+    // заполняем всю поверхность
+    SDL_FillSurfaceRect(layer.surface, nullptr, transparent);
+
+    // перерисовываем все объекты
+    for (Drawable* obj : layer.objects) {
+        obj->drawToSurface(layer.surface);
+    }
+
+    // обновляем текстуру
+    if (layer.texture) {
+        SDL_DestroyTexture(layer.texture);
+    }
+    layer.texture = SDL_CreateTextureFromSurface(renderer, layer.surface);
+    if (!layer.texture) {
+        SDL_Log("SDL_CreateTextureFromSurface failed: %s", SDL_GetError());
+    }
+}
+

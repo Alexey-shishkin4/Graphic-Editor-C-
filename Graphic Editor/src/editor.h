@@ -17,6 +17,8 @@ public:
     void run();
 
 private:
+    PenTool penTool;
+    
     SDL_Window *window = nullptr;
     SDL_Renderer *renderer = nullptr;
     bool running = true;
@@ -54,4 +56,6 @@ private:
     void toggle_tool(Tool tool);
     void render();
     void importImage(const std::string& path);
+    void createLayerFromSelection(const std::vector<SDL_FPoint>& polygon);
+    void updateLayerSurface(int index);
 };
