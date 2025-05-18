@@ -4,8 +4,8 @@
 #include <math.h>
 #include <vector>
 #include "undo.h"
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "stb_image.h"        // БЕЗ define
+#include "stb_image_write.h"  // БЕЗ define
 #include <cstring>
 #include "tinyfiledialogs.h"
 #include <SDL3/SDL_surface.h>
@@ -82,6 +82,54 @@ void drawCircle(SDL_Renderer* renderer, float centerX, float centerY, float radi
             err -= 2 * x + 1;
         }
     }
+}
+
+bool saveCanvasAsJPG(SDL_Renderer* renderer,
+                     const char* filename = "image.jpg",
+                     int quality = 90)
+{
+    // 1) Считываем весь back-buffer в SDL_Surface*
+    //    SDL3: возвращает новую SDL_Surface* с пикселями
+    SDL_Surface* surf = SDL_RenderReadPixels(renderer, nullptr);
+    if (!surf) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "SDL_RenderReadPixels failed: %s",
+                     SDL_GetError());
+        return false;
+    }
+
+    // 2) Конвертируем поверхность в 24-битный RGB (без альфы)
+    SDL_Surface* rgbSurf = SDL_ConvertSurface(
+        surf,
+        SDL_PIXELFORMAT_RGB24
+    );
+    SDL_DestroySurface(surf);
+    if (!rgbSurf) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "SDL_ConvertSurfaceFormat(RGB24) failed: %s",
+                     SDL_GetError());
+        return false;
+    }
+
+    // 3) Пишем JPEG с помощью stb_image_write
+    //    пиксели идут подряд: R,G,B,R,G,B,...
+    if (!stbi_write_jpg(
+            filename,
+            rgbSurf->w,
+            rgbSurf->h,
+            3,
+            rgbSurf->pixels,
+            quality))
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "stbi_write_jpg failed");
+        SDL_DestroySurface(rgbSurf);
+        return false;
+    }
+
+    SDL_Log("Canvas successfully saved to '%s'", filename);
+    SDL_DestroySurface(rgbSurf);
+    return true;
 }
 
 
@@ -214,6 +262,9 @@ void Editor::handle_event(SDL_Event& e) {
         } else if (e.key.scancode == SDL_SCANCODE_P) {
             printf("Pen tool selected!\n");
             toggle_tool(Tool::Pen);
+        } else if (e.key.scancode == SDL_SCANCODE_C && (e.key.mod & SDL_KMOD_CTRL)) {
+            SDL_Log("Trying to save canv");
+            saveCanvasAsJPG(renderer);
         }
     }
 
