@@ -12,8 +12,9 @@ struct Layer {
     bool visible = true;
     std::string name;
 
-    SDL_Surface* surface = nullptr;  // Добавлено
-    SDL_Texture* texture = nullptr;  // Добавлено
+    SDL_Surface* surface = nullptr;
+    SDL_Texture* texture = nullptr;
+    bool surfFlag = false;
 
     Layer() = default;
     Layer(const Layer&) = default;

@@ -9,6 +9,12 @@
 #include <cstring>
 #include "tinyfiledialogs.h"
 #include <SDL3/SDL_surface.h>
+#include <cfloat>      // для FLT_MAX
+
+float minX =  FLT_MAX;
+float minY =  FLT_MAX;
+float maxX = -FLT_MAX;
+float maxY = -FLT_MAX;
 
 
 bool point_in_rect(float x, float y, const Rect& r) {
@@ -603,6 +609,15 @@ void Editor::render() {
     for (const Layer& layer : layers) {
         if (!layer.visible) continue;
 
+        if (layer.surfFlag) {
+            SDL_FRect dstRect = {
+                offsetX, offsetY,
+                layer.canvasWidth  * scale,
+                layer.canvasHeight * scale
+            };
+            SDL_RenderTexture(renderer, layer.texture, nullptr, &dstRect);
+        }
+
         for (const Layer& layer : layers) {
             if (!layer.visible) continue;
         
@@ -824,7 +839,7 @@ void Editor::importImage(const std::string& pathOverride) {
     SDL_GetWindowSize(window, &windowWidth, &windowHeight);
     int centerX = (windowWidth - imgWidth) / 2;
     int centerY = (windowHeight - imgHeight) / 2;
-    canvasRect = {centerX, centerY, canvasWidth, canvasHeight};
+    //canvasRect = {centerX, centerY, canvasWidth, canvasHeight};
 
     Layer newLayer;
     newLayer.name = "Image Layer";
@@ -832,7 +847,8 @@ void Editor::importImage(const std::string& pathOverride) {
     newLayer.canvasWidth = imgWidth;
     newLayer.canvasHeight = imgHeight;
     newLayer.surface = surface;
-    newLayer.texture = texture;
+    //newLayer.surfFlag = true;
+    //newLayer.texture = texture;
 
     Drawable* bg = new DrawableImageBackground(texture, imgWidth, imgHeight);
     newLayer.objects.push_back(bg);
@@ -850,60 +866,122 @@ void Editor::importImage(const std::string& pathOverride) {
 void Editor::createLayerFromSelection(const std::vector<SDL_FPoint>& polygon) {
     if (polygon.size() < 3) return;
 
-    SDL_Surface* src = layers[active_layer].surface;  // src == nullptr 
+    SDL_Surface* src = layers[active_layer].surface;
+    if (!src) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "createLayerFromSelection: source surface is null");
+        return;
+    }
 
-    SDL_Surface* newSurf = SDL_CreateSurface(src->w, src->h, SDL_PIXELFORMAT_RGBA32);
-    if (!newSurf) return;
+    // 1) Рассчитываем bounding box по polygon
+    float minX =  FLT_MAX, minY =  FLT_MAX;
+    float maxX = -FLT_MAX, maxY = -FLT_MAX;
+    for (const auto& p : polygon) {
+        minX = std::min(minX, p.x);
+        minY = std::min(minY, p.y);
+        maxX = std::max(maxX, p.x);
+        maxY = std::max(maxY, p.y);
+    }
 
-    SDL_SetSurfaceBlendMode(src, SDL_BLENDMODE_NONE);
+    // 2) Приводим к int и обрезаем по [0..src->w], [0..src->h]
+    int x0 = static_cast<int>(std::floor(minX));
+    int y0 = static_cast<int>(std::floor(minY));
+    int x1 = static_cast<int>(std::ceil (maxX));
+    int y1 = static_cast<int>(std::ceil (maxY));
 
-    Uint32* srcPixels = (Uint32*)src->pixels;
-    Uint32* dstPixels = (Uint32*)newSurf->pixels;
+    x0 = std::clamp(x0, 0, src->w);
+    y0 = std::clamp(y0, 0, src->h);
+    x1 = std::clamp(x1, 0, src->w);
+    y1 = std::clamp(y1, 0, src->h);
 
-    for (int y = 0; y < src->h; ++y) {
-        for (int x = 0; x < src->w; ++x) {
-            SDL_FPoint pt = {(float)x, (float)y};
+    int w = x1 - x0;
+    int h = y1 - y0;
+    if (w <= 0 || h <= 0) {
+        SDL_Log("createLayerFromSelection: empty bounding box");
+        return;
+    }
+
+    // 3) Создаём новую поверхность ровно w×h пикселей
+    SDL_Surface* newSurf = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
+    if (!newSurf) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "SDL_CreateSurface failed: %s", SDL_GetError());
+        return;
+    }
+
+    // 4) Блокируем обе поверхности для прямого доступа к pixels
+    SDL_LockSurface(src);
+    SDL_LockSurface(newSurf);
+
+    // 5) Рассчитываем отступы (pitch) в элементах Uint32
+    int srcPitch = src->pitch / sizeof(Uint32);
+    int dstPitch = newSurf->pitch / sizeof(Uint32);
+
+    Uint32* srcPixels = static_cast<Uint32*>(src->pixels);
+    Uint32* dstPixels = static_cast<Uint32*>(newSurf->pixels);
+
+    // 6) Копируем только те пиксели, что внутри polygon
+    for (int yy = 0; yy < h; ++yy) {
+        for (int xx = 0; xx < w; ++xx) {
+            int sx = x0 + xx;
+            int sy = y0 + yy;
+
+            SDL_FPoint pt = { float(sx), float(sy) };
+
+            Uint32* srcRow = srcPixels + sy * srcPitch;
+            Uint32* dstRow = dstPixels + yy * dstPitch;
+
             if (pointInPolygon(pt, polygon)) {
-                dstPixels[y * src->w + x] = srcPixels[y * src->w + x];
+                dstRow[xx] = srcRow[sx];
             } else {
-                dstPixels[y * src->w + x] = 0; // прозрачный
+                dstRow[xx] = 0;  // полностью прозрачный
             }
         }
     }
 
+    // 7) Разблокируем
+    SDL_UnlockSurface(src);
+    SDL_UnlockSurface(newSurf);
+
+    // 8) Формируем объект Layer
     Layer newLayer;
-    newLayer.surface = newSurf;
-    newLayer.texture = SDL_CreateTextureFromSurface(renderer, newSurf);
-    newLayer.visible = true;
-    newLayer.name = "Pen Selection";
+    newLayer.canvasWidth     = w;
+    newLayer.canvasHeight    = h;
+    newLayer.surface         = newSurf;
+    newLayer.texture         = SDL_CreateTextureFromSurface(renderer, newSurf);
+    newLayer.visible         = true;
+    newLayer.surfFlag        = true;
+    newLayer.name            = "Pen Selection";
+
     layers.push_back(std::move(newLayer));
-    SDL_Log("Сработало?");
+
+    SDL_Log("createLayerFromSelection: created layer %dx%d at (%d, %d)",
+            w, h, x0, y0);
 }
 
-
-void Editor::updateLayerSurface(int index) {
-    if (index < 0 || index >= static_cast<int>(layers.size())) return;
-    Layer& layer = layers[index];
-    if (!layer.surface) return;
-
-    // полностью прозрачный пиксель в формате RGBA32 == 0
-    Uint32 transparent = 0;
-
-    // заполняем всю поверхность
-    SDL_FillSurfaceRect(layer.surface, nullptr, transparent);
-
-    // перерисовываем все объекты
-    for (Drawable* obj : layer.objects) {
-        obj->drawToSurface(layer.surface);
-    }
-
-    // обновляем текстуру
-    if (layer.texture) {
-        SDL_DestroyTexture(layer.texture);
-    }
-    layer.texture = SDL_CreateTextureFromSurface(renderer, layer.surface);
-    if (!layer.texture) {
-        SDL_Log("SDL_CreateTextureFromSurface failed: %s", SDL_GetError());
-    }
-}
+//void Editor::updateLayerSurface(int index) {
+//    if (index < 0 || index >= static_cast<int>(layers.size())) return;
+//    Layer& layer = layers[index];
+//    if (!layer.surface) return;
+//
+//    // полностью прозрачный пиксель в формате RGBA32 == 0
+//    Uint32 transparent = 0;
+//
+//    // заполняем всю поверхность
+//    SDL_FillSurfaceRect(layer.surface, nullptr, transparent);
+//
+//    // перерисовываем все объекты
+//    for (Drawable* obj : layer.objects) {
+//        obj->drawToSurface(layer.surface);
+//    }
+//
+//    // обновляем текстуру
+//    if (layer.texture) {
+//        SDL_DestroyTexture(layer.texture);
+//    }
+//    layer.texture = SDL_CreateTextureFromSurface(renderer, layer.surface);
+//    if (!layer.texture) {
+//        SDL_Log("SDL_CreateTextureFromSurface failed: %s", SDL_GetError());
+//    }
+//}
 
